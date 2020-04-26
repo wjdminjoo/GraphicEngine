@@ -10,19 +10,27 @@ class Tutorial : public Game
 public:
 	using super = Game;
 
+	Tutorial(const std::wstring& name, int width, int height, bool vSync = false);
+	virtual bool Initialize() override;
 	virtual bool LoadContent() override;
 	virtual void UnloadContent() override;
+	virtual void Destroy() override;
 
 protected:
 	virtual void OnUpdate(UpdateEventArgs& e) override;
 	virtual void OnRender(RenderEventArgs& e) override;
 	virtual void OnKeyPressed(KeyEventArgs& e) override;
+	virtual void OnKeyReleased(KeyEventArgs& e) override;
+	virtual void OnMouseMoved(MouseMotionEventArgs& e) override;
+	virtual void OnMouseButtonPressed(MouseButtonEventArgs& e) override;
+	virtual void OnMouseButtonReleased(MouseButtonEventArgs& e) override;
 	virtual void OnMouseWheel(MouseWheelEventArgs& e) override;
 	virtual void OnResize(ResizeEventArgs& e) override;
+	virtual void OnWindowDestroy() override;
 
 private:
 	// 리소스 교체
-	void TrasitionResource(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> commandList,
+	void TransitionResource(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> commandList,
 		Microsoft::WRL::ComPtr<ID3D12Resource> resource,
 		D3D12_RESOURCE_STATES beforeState, D3D12_RESOURCE_STATES afterState);
 
@@ -45,5 +53,35 @@ private:
 
 
 	uint64_t m_FenceValues[Window::BufferCount] = {};
-};
 
+	// Vertex Buffer
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_VertexBuffer;
+	D3D12_VERTEX_BUFFER_VIEW m_VertexBufferView;
+
+	// Index Buffer
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_IndexBuffer;
+	D3D12_INDEX_BUFFER_VIEW m_IndexBufferView;
+
+	// Depth Buffer
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_DepthBuffer;
+	// Depth buffer Descriptor Heap
+	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_DSVHeap;
+
+	// Root signature
+	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_RootSignature;
+
+	// pipline state object
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> m_PipelineState;
+
+	//initialize rasterizer statge of the rendering pipline
+	D3D12_VIEWPORT m_Viewport;
+	D3D12_RECT m_ScissorRect;
+
+	float m_FoV;
+
+	DirectX::XMMATRIX m_ModelMatrix;
+	DirectX::XMMATRIX m_ViewMatrix;
+	DirectX::XMMATRIX m_ProjectionMatrix;
+
+	bool m_ContentLoaded;
+};
