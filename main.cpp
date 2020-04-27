@@ -2,8 +2,8 @@
 #include <Windows.h>
 #include <Shlwapi.h>
 
-#include "Application.h"
-#include "Tutorial.h"
+#include <Application.h>
+#include <Tutorial.h>
 
 #include <dxgidebug.h>
 

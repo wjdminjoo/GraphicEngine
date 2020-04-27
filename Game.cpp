@@ -4,6 +4,14 @@
 #include <Application.h>
 #include <Window.h>
 
+Game::Game(const std::wstring& name, int width, int height, bool vSync)
+{
+}
+
+Game::~Game()
+{
+}
+
 bool Game::Initialize()
 {
 
