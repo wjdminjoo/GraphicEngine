@@ -110,6 +110,7 @@
       <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
       <UseFullPaths>false</UseFullPaths>
       <CompileAs>CompileAsCpp</CompileAs>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -168,11 +169,13 @@
     <ClCompile Include="Tutorial.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="UploadBuffer.cpp" />
     <ClCompile Include="Window.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="CommandQueue.h" />
     <ClInclude Include="d3dx12.h" />
+    <ClInclude Include="Defines.h" />
     <ClInclude Include="DX12LibPCH.h" />
     <ClInclude Include="Events.h" />
     <ClInclude Include="Game.h">
@@ -185,6 +188,7 @@
     <ClInclude Include="Tutorial.h">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ExcludedFromBuild>
     </ClInclude>
+    <ClInclude Include="UploadBuffer.h" />
     <ClInclude Include="Window.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
