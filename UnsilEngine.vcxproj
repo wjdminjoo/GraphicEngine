@@ -105,7 +105,7 @@
       <SDLCheck>false</SDLCheck>
       <PreprocessorDefinitions>WIN32;_WINDOWS;_ENABLE_EXTENDED_ALIGNED_STORAGE;CMAKE_INTDIR="Debug";%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>false</ConformanceMode>
-      <AdditionalIncludeDirectories>D:\Engine\GraphicEngine;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Engine\GraphicEngine\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
       <UseFullPaths>false</UseFullPaths>
@@ -154,46 +154,41 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <None Include="VertexShader.hlsli" />
     <None Include="packages.config" />
+    <None Include="shader\VertexShader.hlsli" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Application.cpp" />
-    <ClCompile Include="CommandQueue.cpp" />
-    <ClCompile Include="DescriptorAllocation.cpp" />
-    <ClCompile Include="DescriptorAllocator.cpp" />
-    <ClCompile Include="DX12LibPCH.cpp" />
-    <ClCompile Include="Game.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ExcludedFromBuild>
-    </ClCompile>
-    <ClCompile Include="HighResolutionClock.cpp" />
-    <ClCompile Include="main.cpp" />
-    <ClCompile Include="Tutorial.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ExcludedFromBuild>
-    </ClCompile>
-    <ClCompile Include="UploadBuffer.cpp" />
-    <ClCompile Include="Window.cpp" />
+    <ClCompile Include="src\Application.cpp" />
+    <ClCompile Include="src\CommandQueue.cpp" />
+    <ClCompile Include="src\DescriptorAllocation.cpp" />
+    <ClCompile Include="src\DescriptorAllocationPage.cpp" />
+    <ClCompile Include="src\DescriptorAllocator.cpp" />
+    <ClCompile Include="src\DX12LibPCH.cpp" />
+    <ClCompile Include="src\Game.cpp" />
+    <ClCompile Include="src\HighResolutionClock.cpp" />
+    <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\Tutorial.cpp" />
+    <ClCompile Include="src\UploadBuffer.cpp" />
+    <ClCompile Include="src\Window.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="CommandQueue.h" />
-    <ClInclude Include="d3dx12.h" />
-    <ClInclude Include="Defines.h" />
-    <ClInclude Include="DesciptorAllocation.h" />
-    <ClInclude Include="DescriptorAllocator.h" />
-    <ClInclude Include="DX12LibPCH.h" />
-    <ClInclude Include="Events.h" />
-    <ClInclude Include="Game.h">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ExcludedFromBuild>
-    </ClInclude>
-    <ClInclude Include="Helpers.h" />
-    <ClInclude Include="HighResolutionClock.h" />
-    <ClInclude Include="KeyCodes.h" />
-    <ClInclude Include="resource.h" />
-    <ClInclude Include="Tutorial.h">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ExcludedFromBuild>
-    </ClInclude>
-    <ClInclude Include="UploadBuffer.h" />
-    <ClInclude Include="Window.h" />
+    <ClInclude Include="inc\Application.h" />
+    <ClInclude Include="inc\CommandQueue.h" />
+    <ClInclude Include="inc\d3dx12.h" />
+    <ClInclude Include="inc\Defines.h" />
+    <ClInclude Include="inc\DescriptorAllocation.h" />
+    <ClInclude Include="inc\DescriptorAllocator.h" />
+    <ClInclude Include="inc\DescriptorAllocatorPage.h" />
+    <ClInclude Include="inc\DX12LibPCH.h" />
+    <ClInclude Include="inc\Events.h" />
+    <ClInclude Include="inc\Game.h" />
+    <ClInclude Include="inc\Helpers.h" />
+    <ClInclude Include="inc\HighResolutionClock.h" />
+    <ClInclude Include="inc\KeyCodes.h" />
+    <ClInclude Include="inc\resource.h" />
+    <ClInclude Include="inc\Tutorial.h" />
+    <ClInclude Include="inc\UploadBuffer.h" />
+    <ClInclude Include="inc\Window.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
