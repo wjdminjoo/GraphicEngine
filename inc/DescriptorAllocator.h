@@ -1,5 +1,5 @@
 #pragma once
-#include "DesciptorAllocation.h"
+#include "DescriptorAllocation.h"
 #include <d3d12.h>
 #include <cstdint> // 정수 고정 폭
 #include <mutex> // mutex를 이용 여러 스레드에서 안전하게 할당 수행
@@ -23,6 +23,16 @@ class DescriptorAllocator
 	void ReleaseStaleDescriptors(uint64_t frameNumber);
 
 private:
+	using DescriptorHeapPool = std::vector<std::shared_ptr<DescriptorAllocatorPage>>;
 
+	std::shared_ptr<DescriptorAllocatorPage> CreateAllocatorPage();
+
+	D3D12_DESCRIPTOR_HEAP_TYPE m_HeapType;
+	uint32_t m_NumDescriptorsPerHeap;
+
+	DescriptorHeapPool m_HeapPool;
+	std::set<size_t> m_AvailableHeaps;
+
+	std::mutex m_AllocationMutex;
 };
 

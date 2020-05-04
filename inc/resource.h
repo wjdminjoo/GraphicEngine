@@ -1,8 +1,8 @@
 //{{NO_DEPENDENCIES}}
 // Microsoft Visual C++ generated include file.
-// Used by DX12Lib.rc
+// Used by Tutorial2.rc
 //
-#define APP_ICON                        5
+#define APP_ICON                        101
 
 // Next default values for new objects
 // 

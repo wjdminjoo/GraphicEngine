@@ -1,4 +1,36 @@
 #pragma once
+
+/*
+ *  Copyright(c) 2018 Jeremiah van Oosten
+ *
+ *  Permission is hereby granted, free of charge, to any person obtaining a copy
+ *  of this software and associated documentation files(the "Software"), to deal
+ *  in the Software without restriction, including without limitation the rights
+ *  to use, copy, modify, merge, publish, distribute, sublicense, and / or sell
+ *  copies of the Software, and to permit persons to whom the Software is
+ *  furnished to do so, subject to the following conditions :
+ *
+ *  The above copyright notice and this permission notice shall be included in
+ *  all copies or substantial portions of the Software.
+ *
+ *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ *  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ *  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.IN NO EVENT SHALL THE
+ *  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ *  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ *  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+ *  IN THE SOFTWARE.
+ */
+
+ /**
+  *  @file Application.h
+  *  @date October 24, 2018
+  *  @author Jeremiah van Oosten
+  *
+  *  @brief The application class is used to create windows for our application.
+  */
+
+
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <wrl.h>
@@ -6,9 +38,9 @@
 #include <memory>
 #include <string>
 
-class Window;
-class Game;
 class CommandQueue;
+class Game;
+class Window;
 
 class Application
 {
@@ -84,7 +116,9 @@ public:
      */
     std::shared_ptr<CommandQueue> GetCommandQueue(D3D12_COMMAND_LIST_TYPE type = D3D12_COMMAND_LIST_TYPE_DIRECT) const;
 
-    // Flush all command queues.
+    /**
+     * Flush all command queues.
+     */
     void Flush();
 
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> CreateDescriptorHeap(UINT numDescriptors, D3D12_DESCRIPTOR_HEAP_TYPE type);
@@ -97,6 +131,9 @@ protected:
     // Destroy the application instance and all windows associated with this application.
     virtual ~Application();
 
+    // Initialize the application instance.
+    void Initialize();
+
     Microsoft::WRL::ComPtr<IDXGIAdapter4> GetAdapter(bool bUseWarp);
     Microsoft::WRL::ComPtr<ID3D12Device2> CreateDevice(Microsoft::WRL::ComPtr<IDXGIAdapter4> adapter);
     bool CheckTearingSupport();
@@ -108,7 +145,6 @@ private:
     // The application instance handle that this application was created with.
     HINSTANCE m_hInstance;
 
-    Microsoft::WRL::ComPtr<IDXGIAdapter4> m_dxgiAdapter;
     Microsoft::WRL::ComPtr<ID3D12Device2> m_d3d12Device;
 
     std::shared_ptr<CommandQueue> m_DirectCommandQueue;

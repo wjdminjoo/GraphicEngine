@@ -62,6 +62,13 @@ void Window::Destroy()
         // Notify the registered game that the window is being destroyed.
         pGame->OnWindowDestroy();
     }
+
+    for (int i = 0; i < BufferCount; ++i)
+    {
+        auto resource = m_d3d12BackBuffers[i].Get();
+        m_d3d12BackBuffers[i].Reset();
+    }
+
     if (m_hWnd)
     {
         DestroyWindow(m_hWnd);

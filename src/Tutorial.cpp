@@ -2,7 +2,6 @@
 #include <Application.h>
 #include <CommandQueue.h>
 #include <Helpers.h>
-
 #include <wrl.h>
 using namespace Microsoft::WRL;
 
@@ -61,9 +60,173 @@ Tutorial::Tutorial(const std::wstring& name, int width, int height, bool vSync)
 {
 }
 
-bool Tutorial::Initialize()
+
+
+
+
+void Tutorial::UnloadContent()
 {
-	return false;
+	m_ContentLoaded = false;
+}
+
+
+void Tutorial::OnUpdate(UpdateEventArgs& e)
+{
+	static uint64_t frameCount = 0;
+	static double totalTime = 0.0;
+
+	super::OnUpdate(e);
+
+	totalTime += e.ElapsedTime;
+	frameCount++;
+
+	if (totalTime > 1.0) {
+		double fps = frameCount / totalTime;
+
+		char buffer[512];
+		sprintf_s(buffer, "FPS : %f \n", fps);
+		OutputDebugStringA(buffer);
+
+		frameCount = 0;
+		totalTime = 0.0;
+
+		float angle = static_cast<float>(e.TotalTime * 90, 0);
+		const XMVECTOR rotationAxis = XMVectorSet(0, 1, 1, 0);
+		m_ModelMatrix = XMMatrixRotationAxis(rotationAxis, XMConvertToRadians(angle));
+
+		const XMVECTOR eyePosition = XMVectorSet(0, 0, -10, 1);
+		const XMVECTOR focusPoint = XMVectorSet(0, 0, 0, 1);
+		const XMVECTOR upDirection = XMVectorSet(0, 1, 0, 0);
+		m_ViewMatrix = XMMatrixLookAtLH(eyePosition, focusPoint, upDirection);
+
+		// update projection matrix
+		float aspectRatio = GetClientWidth() / static_cast<float>(GetClientHeight());
+		m_ProjectionMatrix = XMMatrixPerspectiveFovLH(XMConvertToRadians(m_FoV), aspectRatio, 0.1f, 100.0f);
+	}
+}
+
+void Tutorial::OnRender(RenderEventArgs& e)
+{
+	super::OnRender(e);
+
+	auto commandQueue = Application::Get().GetCommandQueue(D3D12_COMMAND_LIST_TYPE_DIRECT);
+	auto commandList = commandQueue->GetCommandList();
+
+	UINT currentBackBufferIndex = m_pWindow->GetCurrentBackBufferIndex();
+	auto backBuffer = m_pWindow->GetCurrentBackBuffer();
+	auto rtv = m_pWindow->GetCurrentRenderTargetView();
+
+	// CPU 표시 설명자 힙의 CPU 핸들을 반환합니다.설명자 힙이 CPU 표시 힙이 아닌 경우 NULL 핸들을 반환합니다(또한 디버그 계층은 오류를 보고함).
+	auto dsv = m_DSVHeap->GetCPUDescriptorHandleForHeapStart();
+
+	// Clear the render targets.
+	{
+		TransitionResource(commandList, backBuffer,
+			D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+		FLOAT clearColor[] = { 0.4f, 0.6f, 0.9f, 1.0f };
+
+		ClearRTV(commandList, rtv, clearColor);
+		ClearDepth(commandList, dsv);
+	}
+
+	commandList->SetPipelineState(m_PipelineState.Get());
+	commandList->SetGraphicsRootSignature(m_RootSignature.Get());
+	commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	commandList->IASetVertexBuffers(0, 1, &m_VertexBufferView);
+	commandList->IASetIndexBuffer(&m_IndexBufferView);
+	commandList->RSSetViewports(1, &m_Viewport);
+	commandList->RSSetScissorRects(1, &m_ScissorRect);
+	commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+
+
+	XMMATRIX mvpMatrix = XMMatrixMultiply(m_ModelMatrix, m_ViewMatrix);
+	mvpMatrix = XMMatrixMultiply(mvpMatrix, m_ProjectionMatrix);
+	commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &mvpMatrix, 0);
+
+	commandList->DrawIndexedInstanced(_countof(g_Indicies), 1, 0, 0, 0);
+
+	// 이미지 화면에 표시
+	{
+		TransitionResource(commandList, backBuffer,
+			D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+
+		m_FenceValues[currentBackBufferIndex] = commandQueue->ExecuteCommandList(commandList);
+
+		currentBackBufferIndex = m_pWindow->Present();
+
+		commandQueue->WaitForFenceValue(m_FenceValues[currentBackBufferIndex]);
+	}
+}
+
+void Tutorial::OnKeyPressed(KeyEventArgs& e)
+{
+	super::OnKeyPressed(e);
+
+	switch (e.Key)
+	{
+	case KeyCode::Escape:
+		Application::Get().Quit(0);
+		break;
+	case KeyCode::Enter:
+		if (e.Alt)
+		{
+	case KeyCode::F11:
+		m_pWindow->ToggleFullscreen();
+		break;
+		}
+	case KeyCode::V:
+		m_pWindow->ToggleVSync();
+		break;
+	}
+}
+
+
+void Tutorial::OnMouseWheel(MouseWheelEventArgs& e)
+{
+	m_FoV -= e.WheelDelta;
+	m_FoV = clamp(m_FoV, 12.0f, 90.0f);
+
+	char buffer[256];
+	sprintf_s(buffer, "FoV: %f\n", m_FoV);
+	OutputDebugStringA(buffer);
+}
+
+void Tutorial::UpdateBufferResource(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> commandList, ID3D12Resource** pDestinationResource, ID3D12Resource** pIntermediateResource, size_t numElements, size_t elementSize, const void* bufferData, D3D12_RESOURCE_FLAGS flags)
+{
+	auto device = Application::Get().GetDevice();
+
+	size_t bufferSize = numElements * elementSize;
+
+	// 자원과 자원을 저장하기위한 암시적 힙 생성
+	ThrowIfFailed(device->CreateCommittedResource(&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+		D3D12_HEAP_FLAG_NONE,
+		&CD3DX12_RESOURCE_DESC::Buffer(bufferSize, flags),
+		D3D12_RESOURCE_STATE_COPY_DEST,
+		nullptr,
+		IID_PPV_ARGS(pDestinationResource)));
+
+
+	// CPU 버퍼 데이터를 GPU 메모리로 전송하는데 사용되는 다른 리소스 생성
+	// 메모리 전송을 수행하기 위한 업로드 힙을 사용하여 중간 버퍼 자원 작성
+	if (bufferData)
+	{
+		ThrowIfFailed(device->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+			D3D12_HEAP_FLAG_NONE,
+			&CD3DX12_RESOURCE_DESC::Buffer(bufferSize),
+			D3D12_RESOURCE_STATE_GENERIC_READ,
+			nullptr,
+			IID_PPV_ARGS(pIntermediateResource)));
+		D3D12_SUBRESOURCE_DATA subresourceData = {};
+		subresourceData.pData = bufferData;
+		subresourceData.RowPitch = bufferSize;
+		subresourceData.SlicePitch = subresourceData.RowPitch;
+
+		UpdateSubresources(commandList.Get(),
+			*pDestinationResource, *pIntermediateResource,
+			0, 0, 1, &subresourceData);
+	}
 }
 
 bool Tutorial::LoadContent()
@@ -72,9 +235,11 @@ bool Tutorial::LoadContent()
 	auto commandQueue = Application::Get().GetCommandQueue(D3D12_COMMAND_LIST_TYPE_COPY);
 	auto commandList = commandQueue->GetCommandList();
 
-	//upload Vertex buffer data
+	// Upload vertex buffer data.
 	ComPtr<ID3D12Resource> intermediateVertexBuffer;
-	UpdateBufferResource(commandList.Get(), &m_VertexBuffer, &intermediateVertexBuffer, _countof(g_Vertices), sizeof(VertexPosColor), g_Vertices);
+	UpdateBufferResource(commandList,
+		&m_VertexBuffer, &intermediateVertexBuffer,
+		_countof(g_Vertices), sizeof(VertexPosColor), g_Vertices);
 
 	// 입력 어셈블러의 정점을 GPU에 저장
 	m_VertexBufferView.BufferLocation = m_VertexBuffer->GetGPUVirtualAddress();
@@ -84,7 +249,9 @@ bool Tutorial::LoadContent()
 
 	// GPU를 CPU에 색인 버퍼로 데이터를 전송하는 임시 색인 버퍼 자원
 	ComPtr<ID3D12Resource> intermediateIndexBuffer;
-	UpdateBufferResource(commandList.Get(), &m_IndexBuffer, &intermediateIndexBuffer, _countof(g_Indicies), sizeof(WORD), g_Indicies);
+	UpdateBufferResource(commandList,
+		&m_IndexBuffer, &intermediateIndexBuffer,
+		_countof(g_Indicies), sizeof(WORD), g_Indicies);
 
 	m_IndexBufferView.BufferLocation = m_IndexBuffer->GetGPUVirtualAddress();
 	m_IndexBufferView.Format = DXGI_FORMAT_R16_UINT;
@@ -174,186 +341,6 @@ bool Tutorial::LoadContent()
 	return true;
 }
 
-void Tutorial::UnloadContent()
-{
-}
-
-void Tutorial::Destroy()
-{
-}
-
-void Tutorial::OnUpdate(UpdateEventArgs& e)
-{
-	static uint64_t frameCount = 0;
-	static double totalTime = 0.0;
-
-	super::OnUpdate(e);
-
-	totalTime += e.ElapsedTime;
-	frameCount++;
-
-	if (totalTime > 1.0) {
-		double fps = frameCount / totalTime;
-
-		char buffer[512];
-		sprintf_s(buffer, "FPS : %f \n", fps);
-		OutputDebugStringA(buffer);
-
-		frameCount = 0;
-		totalTime = 0.0;
-
-		float angle = static_cast<float>(e.TotalTime * 90, 0);
-		const XMVECTOR rotationAxis = XMVectorSet(0, 1, 1, 0);
-		m_ModelMatrix = XMMatrixRotationAxis(rotationAxis, XMConvertToRadians(angle));
-
-		const XMVECTOR eyePosition = XMVectorSet(0, 0, -10, 1);
-		const XMVECTOR focusPoint = XMVectorSet(0, 0, 0, 1);
-		const XMVECTOR upDirection = XMVectorSet(0, 1, 0, 0);
-		m_ViewMatrix = XMMatrixLookAtLH(eyePosition, focusPoint, upDirection);
-
-		// update projection matrix
-		float aspectRatio = GetClientWidth() / static_cast<float>(GetClientHeight());
-		m_ProjectionMatrix = XMMatrixPerspectiveFovLH(XMConvertToRadians(m_FoV), aspectRatio, 0.1f, 100.0f);
-	}
-}
-
-void Tutorial::OnRender(RenderEventArgs& e)
-{
-	super::OnRender(e);
-
-	auto commandQueue = Application::Get().GetCommandQueue(D3D12_COMMAND_LIST_TYPE_DIRECT);
-	auto commandList = commandQueue->GetCommandList();
-
-	UINT currentBackBufferIndex = m_pWindow->GetCurrentBackBufferIndex();
-	auto backBuffer = m_pWindow->GetCurrentBackBuffer();
-	auto rtv = m_pWindow->GetCurrentRenderTargetView();
-	auto dsv = m_DSVHeap->GetCPUDescriptorHandleForHeapStart();
-
-	// Clear the render targets.
-	{
-		TransitionResource(commandList, backBuffer,
-			D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-
-		FLOAT clearColor[] = { 0.4f, 0.6f, 0.9f, 1.0f };
-
-		ClearRTV(commandList, rtv, clearColor);
-		ClearDepth(commandList, dsv);
-	}
-
-	commandList->SetPipelineState(m_PipelineState.Get());
-	commandList->SetGraphicsRootSignature(m_RootSignature.Get());
-	commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	commandList->IASetVertexBuffers(0, 1, &m_VertexBufferView);
-	commandList->IASetIndexBuffer(&m_IndexBufferView);
-	commandList->RSSetViewports(1, &m_Viewport);
-	commandList->RSSetScissorRects(1, &m_ScissorRect);
-	commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
-
-
-	XMMATRIX mvpMatrix = XMMatrixMultiply(m_ModelMatrix, m_ViewMatrix);
-	mvpMatrix = XMMatrixMultiply(mvpMatrix, m_ProjectionMatrix);
-	commandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &mvpMatrix, 0);
-
-	commandList->DrawIndexedInstanced(_countof(g_Indicies), 1, 0, 0, 0);
-
-	// 이미지 화면에 표시
-	{
-		TransitionResource(commandList, backBuffer,
-			D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-
-		m_FenceValues[currentBackBufferIndex] = commandQueue->ExecuteCommandList(commandList);
-
-		currentBackBufferIndex = m_pWindow->Present();
-
-		commandQueue->WaitForFenceValue(m_FenceValues[currentBackBufferIndex]);
-	}
-}
-
-void Tutorial::OnKeyPressed(KeyEventArgs& e)
-{
-	super::OnKeyPressed(e);
-
-	switch (e.Key)
-	{
-	case KeyCode::Escape:
-		Application::Get().Quit(0);
-		break;
-	case KeyCode::Enter:
-		if (e.Alt)
-		{
-	case KeyCode::F11:
-		m_pWindow->ToggleFullscreen();
-		break;
-		}
-	case KeyCode::V:
-		m_pWindow->ToggleVSync();
-		break;
-	}
-}
-
-void Tutorial::OnKeyReleased(KeyEventArgs& e)
-{
-}
-
-void Tutorial::OnMouseMoved(MouseMotionEventArgs& e)
-{
-}
-
-void Tutorial::OnMouseButtonPressed(MouseButtonEventArgs& e)
-{
-}
-
-void Tutorial::OnMouseButtonReleased(MouseButtonEventArgs& e)
-{
-}
-
-void Tutorial::OnMouseWheel(MouseWheelEventArgs& e)
-{
-	m_FoV -= e.WheelDelta;
-	m_FoV = clamp(m_FoV, 12.0f, 90.0f);
-
-	char buffer[256];
-	sprintf_s(buffer, "FoV: %f\n", m_FoV);
-	OutputDebugStringA(buffer);
-}
-
-void Tutorial::UpdateBufferResource(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> commandList, ID3D12Resource** pDestinationResource, ID3D12Resource** pIntermediateResource, size_t numElements, size_t elementSize, const void* bufferData, D3D12_RESOURCE_FLAGS flags)
-{
-	auto device = Application::Get().GetDevice();
-
-	size_t bufferSize = numElements * elementSize;
-
-	// 자원과 자원을 저장하기위한 암시적 힙 생성
-	ThrowIfFailed(device->CreateCommittedResource(&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-		D3D12_HEAP_FLAG_NONE,
-		&CD3DX12_RESOURCE_DESC::Buffer(bufferSize, flags),
-		D3D12_RESOURCE_STATE_COPY_DEST,
-		nullptr,
-		IID_PPV_ARGS(pDestinationResource)));
-
-
-	// CPU 버퍼 데이터를 GPU 메모리로 전송하는데 사용되는 다른 리소스 생성
-	// 메모리 전송을 수행하기 위한 업로드 힙을 사용하여 중간 버퍼 자원 작성
-	if (bufferData)
-	{
-		ThrowIfFailed(device->CreateCommittedResource(
-			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-			D3D12_HEAP_FLAG_NONE,
-			&CD3DX12_RESOURCE_DESC::Buffer(bufferSize),
-			D3D12_RESOURCE_STATE_GENERIC_READ,
-			nullptr,
-			IID_PPV_ARGS(pIntermediateResource)));
-		D3D12_SUBRESOURCE_DATA subresourceData = {};
-		subresourceData.pData = bufferData;
-		subresourceData.RowPitch = bufferSize;
-		subresourceData.SlicePitch = subresourceData.RowPitch;
-
-		UpdateSubresources(commandList.Get(),
-			*pDestinationResource, *pIntermediateResource,
-			0, 0, 1, &subresourceData);
-	}
-}
-
 void Tutorial::ResizeDepthBuffer(int width, int height)
 {
 	if (m_ContentLoaded) {
@@ -399,10 +386,6 @@ void Tutorial::OnResize(ResizeEventArgs& e)
 
 		ResizeDepthBuffer(e.Width, e.Height);
 	}
-}
-
-void Tutorial::OnWindowDestroy()
-{
 }
 
 void Tutorial::TransitionResource(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> commandList, Microsoft::WRL::ComPtr<ID3D12Resource> resource, D3D12_RESOURCE_STATES beforeState, D3D12_RESOURCE_STATES afterState)

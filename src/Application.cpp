@@ -1,10 +1,16 @@
-#include "DX12LibPCH.h"
-#include "Application.h"
-#include "resource.h"
+#include <Application.h>
+#include <resource.h>
 
-#include "Game.h"
-#include "CommandQueue.h"
-#include "Window.h"
+#include <CommandQueue.h>
+#include <Game.h>
+#include <Helpers.h>
+#include <Window.h>
+
+#include <wrl.h>
+using namespace Microsoft::WRL;
+
+#include <cassert>
+#include <map>
 
 constexpr wchar_t WINDOW_CLASS_NAME[] = L"DX12RenderWindowClass";
 
@@ -19,6 +25,8 @@ static WindowNameMap gs_WindowByName;
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 
 // A wrapper struct to allow shared pointers for the window class.
+// This is needed because the constructor and destructor for the Window
+// class are protected and not accessible by the std::make_shared method.
 struct MakeWindow : public Window
 {
     MakeWindow(HWND hWnd, const std::wstring& windowName, int clientWidth, int clientHeight, bool vSync)
@@ -29,6 +37,9 @@ struct MakeWindow : public Window
 Application::Application(HINSTANCE hInst)
     : m_hInstance(hInst)
     , m_TearingSupported(false)
+{}
+
+void Application::Initialize()
 {
     // Windows 10 Creators update adds Per Monitor V2 DPI awareness context.
     // Using this awareness context allows the client area of the window 
@@ -63,19 +74,17 @@ Application::Application(HINSTANCE hInst)
         MessageBoxA(NULL, "Unable to register the window class.", "Error", MB_OK | MB_ICONERROR);
     }
 
-    m_dxgiAdapter = GetAdapter(false);
-    if (m_dxgiAdapter)
+    auto dxgiAdapter = GetAdapter(false);
+    if (dxgiAdapter)
     {
-        m_d3d12Device = CreateDevice(m_dxgiAdapter);
+        m_d3d12Device = CreateDevice(dxgiAdapter);
     }
-    if (m_d3d12Device)
-    {
-        m_DirectCommandQueue = std::make_shared<CommandQueue>(m_d3d12Device, D3D12_COMMAND_LIST_TYPE_DIRECT);
-        m_ComputeCommandQueue = std::make_shared<CommandQueue>(m_d3d12Device, D3D12_COMMAND_LIST_TYPE_COMPUTE);
-        m_CopyCommandQueue = std::make_shared<CommandQueue>(m_d3d12Device, D3D12_COMMAND_LIST_TYPE_COPY);
 
-        m_TearingSupported = CheckTearingSupport();
-    }
+    m_DirectCommandQueue = std::make_shared<CommandQueue>(D3D12_COMMAND_LIST_TYPE_DIRECT);
+    m_ComputeCommandQueue = std::make_shared<CommandQueue>(D3D12_COMMAND_LIST_TYPE_COMPUTE);
+    m_CopyCommandQueue = std::make_shared<CommandQueue>(D3D12_COMMAND_LIST_TYPE_COPY);
+
+    m_TearingSupported = CheckTearingSupport();
 }
 
 void Application::Create(HINSTANCE hInst)
@@ -83,6 +92,7 @@ void Application::Create(HINSTANCE hInst)
     if (!gs_pSingelton)
     {
         gs_pSingelton = new Application(hInst);
+        gs_pSingelton->Initialize();
     }
 }
 

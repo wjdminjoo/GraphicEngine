@@ -74,7 +74,7 @@ public:
     std::shared_ptr<DescriptorAllocatorPage> GetDescriptorAllocatorPage() const;
 
 private:
-    // Free the descriptor back to the heap it came from.
+    // Free the descriptor back to the heap it cafe from.
     void Free();
 
     // The base descriptor.
@@ -86,4 +86,5 @@ private:
 
     // A pointer back to the original page where this allocation came from.
     std::shared_ptr<DescriptorAllocatorPage> m_Page;
+
 };

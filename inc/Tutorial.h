@@ -11,22 +11,15 @@ public:
 	using super = Game;
 
 	Tutorial(const std::wstring& name, int width, int height, bool vSync = false);
-	virtual bool Initialize() override;
 	virtual bool LoadContent() override;
 	virtual void UnloadContent() override;
-	virtual void Destroy() override;
 
 protected:
 	virtual void OnUpdate(UpdateEventArgs& e) override;
 	virtual void OnRender(RenderEventArgs& e) override;
 	virtual void OnKeyPressed(KeyEventArgs& e) override;
-	virtual void OnKeyReleased(KeyEventArgs& e) override;
-	virtual void OnMouseMoved(MouseMotionEventArgs& e) override;
-	virtual void OnMouseButtonPressed(MouseButtonEventArgs& e) override;
-	virtual void OnMouseButtonReleased(MouseButtonEventArgs& e) override;
 	virtual void OnMouseWheel(MouseWheelEventArgs& e) override;
 	virtual void OnResize(ResizeEventArgs& e) override;
-	virtual void OnWindowDestroy() override;
 
 private:
 	// 리소스 교체
@@ -64,6 +57,7 @@ private:
 
 	// Depth Buffer
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_DepthBuffer;
+
 	// Depth buffer Descriptor Heap
 	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_DSVHeap;
 
@@ -77,11 +71,11 @@ private:
 	D3D12_VIEWPORT m_Viewport;
 	D3D12_RECT m_ScissorRect;
 
-	float m_FoV;
+	float m_FoV = 0;
 
-	DirectX::XMMATRIX m_ModelMatrix;
-	DirectX::XMMATRIX m_ViewMatrix;
-	DirectX::XMMATRIX m_ProjectionMatrix;
+	DirectX::XMMATRIX m_ModelMatrix = DirectX::XMMatrixIdentity();
+	DirectX::XMMATRIX m_ViewMatrix = DirectX::XMMatrixIdentity();
+	DirectX::XMMATRIX m_ProjectionMatrix = DirectX::XMMatrixIdentity();
 
-	bool m_ContentLoaded;
+	bool m_ContentLoaded = 0;
 };
