@@ -16,12 +16,6 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
-    <None Include="shader\PixelShader.hlsli">
-      <Filter>리소스 파일</Filter>
-    </None>
-    <None Include="shader\VertexShader.hlsli">
-      <Filter>리소스 파일</Filter>
-    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="inc\d3dUtil.h">
@@ -37,6 +31,9 @@
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="inc\InitDirectXApp.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="inc\UploadBuffer.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
   </ItemGroup>

@@ -155,8 +155,6 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <None Include="packages.config" />
-    <None Include="shader\PixelShader.hlsli" />
-    <None Include="shader\VertexShader.hlsli" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="inc\d3dApp.h" />
@@ -164,6 +162,7 @@
     <ClInclude Include="inc\GameTimer.h" />
     <ClInclude Include="inc\InitDirectXApp.h" />
     <ClInclude Include="inc\MathHelper.h" />
+    <ClInclude Include="inc\UploadBuffer.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\d3dApp.cpp" />
