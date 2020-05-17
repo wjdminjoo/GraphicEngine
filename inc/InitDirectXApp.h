@@ -1,22 +1,45 @@
 #include "d3dApp.h"
 #include "MathHelper.h"
 #include "UploadBuffer.h"
-#include <DirectXColors.h>
+#include <GeometryGenerator.h>
+#include <FrameResource.h>
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 using namespace DirectX::PackedVector;
 
-struct Vertex {
-	XMFLOAT3 _Pos;
-	XMFLOAT4 _Color;
-};
 
-struct ObjectConstants
-{
-	XMFLOAT4X4 WorldViewProj = MathHelper::Identity4x4();
-};
+// 경량 구조는 모양을 그리는 매개 변수를 저장.
+struct RenderItem {
+	RenderItem() = default;
 
+
+	// 객체의 로컬 공간을 나타내는 모양의 월드 매트릭스
+	// 월드 공간을 기준으로 위치, 방향,
+	// 세계에서 물체의 크기
+	XMFLOAT4X4 World = MathHelper::Identity4x4();
+	XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
+
+	// 객체 데이터가 변경되었음을 나타내는 Dirty 플래그이며 상수 버퍼를 업데이트해야한다.
+	// 각 FrameResource마다 객체 cbuffer가 있으므로
+	// 각 FrameResource로 업데이트한다 따라서 obect 데이터를 수정할 때 설정이 필요하다.
+	// 각 프레임 리소스가 업데이트를 받도록 NumFramesDirty = gNumFrameResources.
+	int NumFramesDirty = gNumFrameResources;
+
+	// 이 렌더 항목의 ObjectCB에 해당하는 GPU 상수 버퍼로 색인
+	UINT ObjCBIndex = -1;
+
+	Material* Mat = nullptr;
+	MeshGeometry* Geo = nullptr;
+
+	// Primitive topology.
+	D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+
+	// DrawIndexedInstanced parameters.
+	UINT IndexCount = 0;
+	UINT StartIndexLocation = 0;
+	int BaseVertexLocation = 0;
+};
 
 class InitDirect3DApp : public D3DApp
 {
@@ -37,13 +60,25 @@ private:
 	virtual void OnMouseUp(WPARAM btnState, int x, int y)override;
 	virtual void OnMouseMove(WPARAM btnState, int x, int y)override;
 
+	void OnKeyboardInput(const GameTimer& gt);
+	void UpdateCamera(const GameTimer& gt);
+	void UpdateObjectCBs(const GameTimer& gt);
+	void UpdateMainPassCB(const GameTimer& gt);
 
-	void BuildDescriptorHeaps();
-	void BuildConstantBuffers();
+
+	void UpdateMaterialCBs(const GameTimer& gt);
+	void AnimateMaterials(const GameTimer& gt);
+
 	void BuildRootSignature();
-	void BuildShadersAndInputLayout();
-	void BuildBoxGeometry();
-	void BuildPSO();
+    void BuildShadersAndInputLayout();
+    void BuildShapeGeometry();
+	void BuildSkullGeometry();
+    void BuildPSOs();
+    void BuildFrameResources();
+    void BuildMaterials();
+    void BuildRenderItems();
+    void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+ 
 
 
 private:
@@ -58,11 +93,31 @@ private:
 	ComPtr<ID3DBlob> mvsByteCode = nullptr;
 	ComPtr<ID3DBlob> mpsByteCode = nullptr;
 
+	std::vector<std::unique_ptr<FrameResource>> mFrameResources;
+	FrameResource* mCurrFrameResource = nullptr;
+	int mCurrFrameResourceIndex = 0;
+
+	UINT mCbvSrvDescriptorSize = 0;
+
+	ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap = nullptr;
+
+	std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
+	std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
+	std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
+	std::unordered_map<std::string, ComPtr<ID3DBlob>> mShaders;
+
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
 
 	ComPtr<ID3D12PipelineState> mPSO = nullptr;
+	ComPtr<ID3D12PipelineState> mOpaquePSO = nullptr;
+
+	std::vector<std::unique_ptr<RenderItem>> mAllRitems;
+	std::vector<RenderItem*> mOpaqueRitems;
+
+	PassConstants mMainPassCB;
 
 	XMFLOAT4X4 mWorld = MathHelper::Identity4x4();
+	XMFLOAT3 mEyePos = { 0.0f, 0.0f, 0.0f };
 	XMFLOAT4X4 mView = MathHelper::Identity4x4();
 	XMFLOAT4X4 mProj = MathHelper::Identity4x4();
 

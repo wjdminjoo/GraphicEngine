@@ -1,6 +1,5 @@
 #include "d3dApp.h"
 #include <WindowsX.h>
-
 using Microsoft::WRL::ComPtr;
 using namespace std;
 using namespace DirectX;
@@ -96,6 +95,9 @@ int D3DApp::Run()
 			}
 		}
 	}
+	ImGui_ImplDX12_Shutdown();
+	ImGui_ImplWin32_Shutdown();
+	ImGui::DestroyContext();
 
 	return (int)msg.wParam;
 }
@@ -110,7 +112,7 @@ bool D3DApp::Initialize()
 
 	// Do the initial resize code.
 	OnResize();
-
+	 
 	return true;
 }
 
@@ -218,9 +220,10 @@ void D3DApp::OnResize()
 
 	mScissorRect = { 0, 0, mClientWidth, mClientHeight };
 }
-
 LRESULT D3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+
+
 	switch (msg)
 	{
 		// WM_ACTIVATE is sent when the window is activated or deactivated.  
@@ -241,6 +244,7 @@ LRESULT D3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
 		// WM_SIZE is sent when the user resizes the window.  
 	case WM_SIZE:
+		
 		// Save the new client area dimensions.
 		mClientWidth = LOWORD(lParam);
 		mClientHeight = HIWORD(lParam);
@@ -342,6 +346,7 @@ LRESULT D3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	case WM_MOUSEMOVE:
 		OnMouseMove(wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
 		return 0;
+	
 	case WM_KEYUP:
 		if (wParam == VK_ESCAPE)
 		{

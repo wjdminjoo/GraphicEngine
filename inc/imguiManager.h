@@ -29,7 +29,7 @@ struct FrameContext
 	static int const                    NUM_BACK_BUFFERS = 3;
 	static ID3D12Device* g_pd3dDevice = NULL;
 	static ID3D12DescriptorHeap* g_pd3dRtvDescHeap = NULL;
-	static ID3D12DescriptorHeap* g_pd3dSrvDescHeap = NULL;
+	static ID3D12DescriptorHeap* g_pd3dSrvDescHeap = nullptr;
 	static ID3D12CommandQueue* g_pd3dCommandQueue = NULL;
 	static ID3D12GraphicsCommandList* g_pd3dCommandList = NULL;
 	static ID3D12Fence* g_fence = NULL;
@@ -42,8 +42,8 @@ struct FrameContext
 
 class imguiManager {
 public:
-	imguiManager();
-	~imguiManager();
+	imguiManager(){}
+	~imguiManager(){}
 	// Forward declarations of helper functions
 	bool CreateDeviceD3D(HWND hWnd);
 	void CleanupDeviceD3D();
@@ -52,6 +52,5 @@ public:
 	void WaitForLastSubmittedFrame();
 	FrameContext* WaitForNextFrameResources();
 	void ResizeSwapChain(HWND hWnd, int width, int height);
-	LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 };

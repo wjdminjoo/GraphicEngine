@@ -7,7 +7,7 @@
 
 #include "d3dUtil.h"
 #include "GameTimer.h"
-
+#include <imguiManager.h>
 // Link necessary d3d12 libraries.
 #pragma comment(lib,"d3dcompiler.lib")
 #pragma comment(lib, "D3D12.lib")
@@ -114,11 +114,15 @@ protected:
     UINT mCbvSrvUavDescriptorSize = 0;
 
     // Derived class should set these in derived constructor to customize starting values.
-    std::wstring mMainWndCaption = L"UnsilEngine";
+    std::wstring mMainWndCaption = L"Unsil Engine";
     D3D_DRIVER_TYPE md3dDriverType = D3D_DRIVER_TYPE_HARDWARE;
     DXGI_FORMAT mBackBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
     DXGI_FORMAT mDepthStencilFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    int mClientWidth = 800;
-    int mClientHeight = 600;
+    int mClientWidth = 1280;
+    int mClientHeight = 800;
+    float FPS = 60.0f;
+    DWORD elapsedTicks = 0;
+    DWORD currentTicks = 0;
+    DWORD interval = (float)(1000 / FPS);
 };
 

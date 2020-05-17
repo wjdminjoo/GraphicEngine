@@ -208,34 +208,3 @@ void imguiManager::ResizeSwapChain(HWND hWnd, int width, int height)
     g_hSwapChainWaitableObject = g_pSwapChain->GetFrameLatencyWaitableObject();
     assert(g_hSwapChainWaitableObject != NULL);
 }
-
-//extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-//
-//LRESULT __stdcall imguiManager::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
-//{
-//    if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
-//        return true;
-//
-//    switch (msg)
-//    {
-//    case WM_SIZE:
-//        if (g_pd3dDevice != NULL && wParam != SIZE_MINIMIZED)
-//        {
-//            WaitForLastSubmittedFrame();
-//            ImGui_ImplDX12_InvalidateDeviceObjects();
-//            CleanupRenderTarget();
-//            ResizeSwapChain(hWnd, (UINT)LOWORD(lParam), (UINT)HIWORD(lParam));
-//            CreateRenderTarget();
-//            ImGui_ImplDX12_CreateDeviceObjects();
-//        }
-//        return 0;
-//    case WM_SYSCOMMAND:
-//        if ((wParam & 0xfff0) == SC_KEYMENU) // Disable ALT application menu
-//            return 0;
-//        break;
-//    case WM_DESTROY:
-//        ::PostQuitMessage(0);
-//        return 0;
-//    }
-//    return ::DefWindowProc(hWnd, msg, wParam, lParam);
-//}

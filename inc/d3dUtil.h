@@ -1,3 +1,8 @@
+//***************************************************************************************
+// d3dUtil.h by Frank Luna (C) 2015 All Rights Reserved.
+//
+// General helper code.
+//***************************************************************************************
 #pragma once
 
 #include <windows.h>
@@ -27,7 +32,6 @@
 // 함수 밖의 전역 범위에 선언, 프로그램 전체에서 유효하고 다른 파일에서도 참조 가능
 // 초기화 하지 않을시 0으로 자동 초기화
 // 정적 데이터영역에 할당.
-
 extern const int gNumFrameResources;
 
 inline void d3dSetDebugName(IDXGIObject* obj, const char* name) {
@@ -35,6 +39,21 @@ inline void d3dSetDebugName(IDXGIObject* obj, const char* name) {
 		obj->SetPrivateData(WKPDID_D3DDebugObjectName, lstrlenA(name), name);
 	}
 }
+inline void d3dSetDebugName(ID3D12Device* obj, const char* name)
+{
+	if (obj)
+	{
+		obj->SetPrivateData(WKPDID_D3DDebugObjectName, lstrlenA(name), name);
+	}
+}
+inline void d3dSetDebugName(ID3D12DeviceChild* obj, const char* name)
+{
+	if (obj)
+	{
+		obj->SetPrivateData(WKPDID_D3DDebugObjectName, lstrlenA(name), name);
+	}
+}
+
 
 inline std::wstring AnsiToWString(const std::string& str) {
 	WCHAR buffer[512];
