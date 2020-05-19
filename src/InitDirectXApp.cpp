@@ -85,26 +85,26 @@ void InitDirect3DApp::Draw(const GameTimer& gt)
 {
 	auto cmdListAlloc = mCurrFrameResource->CmdListAlloc;
 
-	// Reuse the memory associated with command recording.
-	// We can only reset when the associated command lists have finished execution on the GPU.
+	// 명령 기록과 관련된 메모리를 재사용
+    // 관련 명령 목록이 GPU에서 실행을 완료 한 경우에만 재설정가능
 	ThrowIfFailed(cmdListAlloc->Reset());
 
-	// A command list can be reset after it has been added to the command queue via ExecuteCommandList.
-	// Reusing the command list reuses memory.
+	// ExecuteCommandList를 통해 명령 대기열에 명령 목록을 추가 한 후 명령 목록을 재설정 가능
+	// 명령리스트를 재사용하면 메모리가 재사용
 	ThrowIfFailed(mCommandList->Reset(cmdListAlloc.Get(), mOpaquePSO.Get()));
 
 	mCommandList->RSSetViewports(1, &mScreenViewport);
 	mCommandList->RSSetScissorRects(1, &mScissorRect);
 
-	// Indicate a state transition on the resource usage.
+	// 리소스 사용량에 대한 상태 전환
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
 		D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
 
-	// Clear the back buffer and depth buffer.
+	// 백 버퍼와 깊이 버퍼를 Clear
 	mCommandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightSteelBlue, 0, nullptr);
 	mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
-	// Specify the buffers we are going to render to.
+	// 렌더링 할 버퍼를 지정
 	mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
 
 	mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
@@ -114,27 +114,26 @@ void InitDirect3DApp::Draw(const GameTimer& gt)
 
 	DrawRenderItems(mCommandList.Get(), mOpaqueRitems);
 
-	// Indicate a state transition on the resource usage.
+	// 리소스 사용량에 대한 상태 전환
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
 		D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
 
-	// Done recording commands.
+	
 	ThrowIfFailed(mCommandList->Close());
 
-	// Add the command list to the queue for execution.
+	
 	ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
 	mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
 
-	// Swap the back and front buffers
+	
 	ThrowIfFailed(mSwapChain->Present(0, 0));
 	mCurrBackBuffer = (mCurrBackBuffer + 1) % SwapChainBufferCount;
 
-	// Advance the fence value to mark commands up to this fence point.
 	mCurrFrameResource->Fence = ++mCurrentFence;
 
-	// Add an instruction to the command queue to set a new fence point. 
-	// Because we are on the GPU timeline, the new fence point won't be 
-	// set until the GPU finishes processing all the commands prior to this Signal().
+	// 새로운 펜스 포인트를 설정하기 위해 명령 대기열에 명령을 추가
+	// GPU 타임 라인에 있기 때문에 새로운 펜스 포인트는
+	//이 Signal () 이전에 GPU가 모든 명령 처리를 완료 할 때까지 설정
 	mCommandQueue->Signal(mFence.Get(), mCurrentFence);
 
 }
@@ -711,7 +710,7 @@ void InitDirect3DApp::BuildRenderItems()
 		mAllRitems.push_back(std::move(rightSphereRitem));
 	}
 
-	// All the render items are opaque.
+	
 	for (auto& e : mAllRitems)
 		mOpaqueRitems.push_back(e.get());
 }
@@ -724,7 +723,7 @@ void InitDirect3DApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const 
 	auto objectCB = mCurrFrameResource->ObjectCB->Resource();
 	auto matCB = mCurrFrameResource->MaterialCB->Resource();
 
-	// For each render item...
+	
 	for (size_t i = 0; i < ritems.size(); ++i)
 	{
 		auto ri = ritems[i];
