@@ -69,17 +69,19 @@ private:
 	void UpdateMaterialCBs(const GameTimer& gt);
 	void AnimateMaterials(const GameTimer& gt);
 
+
+	void LoadTextures();
 	void BuildRootSignature();
+	void BuildDescriptorHeaps();
     void BuildShadersAndInputLayout();
-    void BuildShapeGeometry();
-	void BuildSkullGeometry();
+	void BuildShapeGeometry();
     void BuildPSOs();
     void BuildFrameResources();
     void BuildMaterials();
     void BuildRenderItems();
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
  
-
+	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
 private:
 
@@ -108,7 +110,6 @@ private:
 
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
 
-	ComPtr<ID3D12PipelineState> mPSO = nullptr;
 	ComPtr<ID3D12PipelineState> mOpaquePSO = nullptr;
 
 	std::vector<std::unique_ptr<RenderItem>> mAllRitems;

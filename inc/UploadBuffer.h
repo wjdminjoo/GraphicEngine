@@ -26,14 +26,13 @@ public:
 			IID_PPV_ARGS(&mUploadBuffer)));
 
 		ThrowIfFailed(mUploadBuffer->Map(0, nullptr, reinterpret_cast<void**>(&mMappedData)));
-		// GPU에서 사용중인 리소스 (동기화 기술을 사용해야 함).
 	}
 
 	UploadBuffer(const UploadBuffer& rhs) = delete;
 	UploadBuffer& operator=(const UploadBuffer& rhs) = delete;
 
 	inline ~UploadBuffer() {
-		if (mUploadBuffer != nullptr) 
+		if (mUploadBuffer != nullptr)
 			mUploadBuffer->Unmap(0, nullptr);
 
 		mMappedData = nullptr;

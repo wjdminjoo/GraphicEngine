@@ -3,6 +3,7 @@
 //
 // General helper code.
 //***************************************************************************************
+
 #pragma once
 
 #include <windows.h>
@@ -28,60 +29,97 @@
 #include "DDSTextureLoader.h"
 #include "MathHelper.h"
 
-
-// 함수 밖의 전역 범위에 선언, 프로그램 전체에서 유효하고 다른 파일에서도 참조 가능
-// 초기화 하지 않을시 0으로 자동 초기화
-// 정적 데이터영역에 할당.
 extern const int gNumFrameResources;
 
-inline void d3dSetDebugName(IDXGIObject* obj, const char* name) {
-	if (obj) {
-		obj->SetPrivateData(WKPDID_D3DDebugObjectName, lstrlenA(name), name);
-	}
+inline void d3dSetDebugName(IDXGIObject* obj, const char* name)
+{
+    if(obj)
+    {
+        obj->SetPrivateData(WKPDID_D3DDebugObjectName, lstrlenA(name), name);
+    }
 }
 inline void d3dSetDebugName(ID3D12Device* obj, const char* name)
 {
-	if (obj)
-	{
-		obj->SetPrivateData(WKPDID_D3DDebugObjectName, lstrlenA(name), name);
-	}
+    if(obj)
+    {
+        obj->SetPrivateData(WKPDID_D3DDebugObjectName, lstrlenA(name), name);
+    }
 }
 inline void d3dSetDebugName(ID3D12DeviceChild* obj, const char* name)
 {
-	if (obj)
-	{
-		obj->SetPrivateData(WKPDID_D3DDebugObjectName, lstrlenA(name), name);
-	}
+    if(obj)
+    {
+        obj->SetPrivateData(WKPDID_D3DDebugObjectName, lstrlenA(name), name);
+    }
 }
 
-
-inline std::wstring AnsiToWString(const std::string& str) {
-	WCHAR buffer[512];
-	MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, buffer, 512);
-	return std::wstring(buffer);
+inline std::wstring AnsiToWString(const std::string& str)
+{
+    WCHAR buffer[512];
+    MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, buffer, 512);
+    return std::wstring(buffer);
 }
 
-class d3dUtil {
+/*
+#if defined(_DEBUG)
+    #ifndef Assert
+    #define Assert(x, description)                                  \
+    {                                                               \
+        static bool ignoreAssert = false;                           \
+        if(!ignoreAssert && !(x))                                   \
+        {                                                           \
+            Debug::AssertResult result = Debug::ShowAssertDialog(   \
+            (L#x), description, AnsiToWString(__FILE__), __LINE__); \
+        if(result == Debug::AssertIgnore)                           \
+        {                                                           \
+            ignoreAssert = true;                                    \
+        }                                                           \
+                    else if(result == Debug::AssertBreak)           \
+        {                                                           \
+            __debugbreak();                                         \
+        }                                                           \
+        }                                                           \
+    }
+    #endif
+#else
+    #ifndef Assert
+    #define Assert(x, description) 
+    #endif
+#endif 		
+    */
+
+class d3dUtil
+{
 public:
-	static bool IsKeyDown(int vKeyCode);
-	
-	static std::string ToString(HRESULT hr);
 
-	// 상수 버퍼는 최소 하드웨어의 배수 여야합니다
-	// 할당 크기 (일반적으로 256 바이트). 가장 가까운 수로 반올림
-	// 256의 배수. 255를 더한 다음 마스킹하여이 작업을 수행합니다.
-	static UINT CalcConstantBufferByteSize(UINT byteSize) {
-		return (byteSize + 255) & ~255;
-	}
+    static bool IsKeyDown(int vkeyCode);
 
-	static Microsoft::WRL::ComPtr<ID3DBlob> LoadBinary(const std::wstring& filename);
+    static std::string ToString(HRESULT hr);
 
-	static Microsoft::WRL::ComPtr<ID3D12Resource> CreateDefaultBuffer(
-		ID3D12Device* device,
-		ID3D12GraphicsCommandList* cmdList,
-		const void* initData,
-		UINT64 byteSize,
-		Microsoft::WRL::ComPtr<ID3D12Resource>& uploadBuffer);
+    static UINT CalcConstantBufferByteSize(UINT byteSize)
+    {
+        // Constant buffers must be a multiple of the minimum hardware
+        // allocation size (usually 256 bytes).  So round up to nearest
+        // multiple of 256.  We do this by adding 255 and then masking off
+        // the lower 2 bytes which store all bits < 256.
+        // Example: Suppose byteSize = 300.
+        // (300 + 255) & ~255
+        // 555 & ~255
+        // 0x022B & ~0x00ff
+        // 0x022B & 0xff00
+        // 0x0200
+        // 512
+        return (byteSize + 255) & ~255;
+    }
+
+    static Microsoft::WRL::ComPtr<ID3DBlob> LoadBinary(const std::wstring& filename);
+
+    static Microsoft::WRL::ComPtr<ID3D12Resource> CreateDefaultBuffer(
+        ID3D12Device* device,
+        ID3D12GraphicsCommandList* cmdList,
+        const void* initData,
+        UINT64 byteSize,
+        Microsoft::WRL::ComPtr<ID3D12Resource>& uploadBuffer);
 
 	static Microsoft::WRL::ComPtr<ID3DBlob> CompileShader(
 		const std::wstring& filename,
@@ -93,39 +131,41 @@ public:
 class DxException
 {
 public:
-	DxException() = default;
-	DxException(HRESULT hr, const std::wstring& functionName, const std::wstring& filename, int lineNumber);
+    DxException() = default;
+    DxException(HRESULT hr, const std::wstring& functionName, const std::wstring& filename, int lineNumber);
 
-	std::wstring ToString()const;
+    std::wstring ToString()const;
 
-	HRESULT ErrorCode = S_OK;
-	std::wstring FunctionName;
-	std::wstring Filename;
-	int LineNumber = -1;
+    HRESULT ErrorCode = S_OK;
+    std::wstring FunctionName;
+    std::wstring Filename;
+    int LineNumber = -1;
 };
 
-// MeshGeometry에서 형상의 하위 범위를 정의합니다. 이것은 여러 경우입니다
-// 지오메트리는 하나의 정점 및 인덱스 버퍼에 저장됩니다. 오프셋을 제공합니다
-// 정점 및 인덱스에 형상 저장소의 하위 집합을 그리는 데 필요한 데이터
+// Defines a subrange of geometry in a MeshGeometry.  This is for when multiple
+// geometries are stored in one vertex and index buffer.  It provides the offsets
+// and data needed to draw a subset of geometry stores in the vertex and index 
+// buffers so that we can implement the technique described by Figure 6.3.
 struct SubmeshGeometry
 {
 	UINT IndexCount = 0;
 	UINT StartIndexLocation = 0;
 	INT BaseVertexLocation = 0;
 
-
-	//이 서브 메쉬에 의해 정의 된 지오메트리의 경계 상자.
+    // Bounding box of the geometry defined by this submesh. 
+    // This is used in later chapters of the book.
 	DirectX::BoundingBox Bounds;
 };
 
 struct MeshGeometry
 {
-	// 이름으로 찾아 볼 수 있도록 이름을 지정
+	// Give it a name so we can look it up by name.
 	std::string Name;
 
-	// 시스템 메모리 사본. 정점 / 인덱스 형식이 일반적 일 수 있으므로 Blob을 사용
+	// System memory copies.  Use Blobs because the vertex/index format can be generic.
+	// It is up to the client to cast appropriately.  
 	Microsoft::WRL::ComPtr<ID3DBlob> VertexBufferCPU = nullptr;
-	Microsoft::WRL::ComPtr<ID3DBlob> IndexBufferCPU = nullptr;
+	Microsoft::WRL::ComPtr<ID3DBlob> IndexBufferCPU  = nullptr;
 
 	Microsoft::WRL::ComPtr<ID3D12Resource> VertexBufferGPU = nullptr;
 	Microsoft::WRL::ComPtr<ID3D12Resource> IndexBufferGPU = nullptr;
@@ -133,16 +173,15 @@ struct MeshGeometry
 	Microsoft::WRL::ComPtr<ID3D12Resource> VertexBufferUploader = nullptr;
 	Microsoft::WRL::ComPtr<ID3D12Resource> IndexBufferUploader = nullptr;
 
-	// 버퍼에 대한 데이터
+    // Data about the buffers.
 	UINT VertexByteStride = 0;
 	UINT VertexBufferByteSize = 0;
 	DXGI_FORMAT IndexFormat = DXGI_FORMAT_R16_UINT;
 	UINT IndexBufferByteSize = 0;
 
-
-	// MeshGeometry는 하나의 꼭짓점 / 인덱스 버퍼에 여러 도형을 저장할 수 있습니다.
-	// 이 컨테이너를 사용하여 서브 메시 지오메트리를 정의하여
-	// 개별적으로 서브 메시.
+	// A MeshGeometry may store multiple geometries in one vertex/index buffer.
+	// Use this container to define the Submesh geometries so we can draw
+	// the Submeshes individually.
 	std::unordered_map<std::string, SubmeshGeometry> DrawArgs;
 
 	D3D12_VERTEX_BUFFER_VIEW VertexBufferView()const
@@ -165,8 +204,7 @@ struct MeshGeometry
 		return ibv;
 	}
 
-
-	// GPU에 업로드를 마치면이 메모리를 비울 수 있습니다.
+	// We can free this memory after we finish upload to the GPU.
 	void DisposeUploaders()
 	{
 		VertexBufferUploader = nullptr;
@@ -176,12 +214,12 @@ struct MeshGeometry
 
 struct Light
 {
-	DirectX::XMFLOAT3 Strength = { 0.5f, 0.5f, 0.5f };
-	float FalloffStart = 1.0f;                          
-	DirectX::XMFLOAT3 Direction = { 0.0f, -1.0f, 0.0f };
-	float FalloffEnd = 10.0f;                           
-	DirectX::XMFLOAT3 Position = { 0.0f, 0.0f, 0.0f };  
-	float SpotPower = 64.0f;                            
+    DirectX::XMFLOAT3 Strength = { 0.5f, 0.5f, 0.5f };
+    float FalloffStart = 1.0f;                          // point/spot light only
+    DirectX::XMFLOAT3 Direction = { 0.0f, -1.0f, 0.0f };// directional/spot light only
+    float FalloffEnd = 10.0f;                           // point/spot light only
+    DirectX::XMFLOAT3 Position = { 0.0f, 0.0f, 0.0f };  // point/spot light only
+    float SpotPower = 64.0f;                            // spot light only
 };
 
 #define MaxLights 16
@@ -192,36 +230,33 @@ struct MaterialConstants
 	DirectX::XMFLOAT3 FresnelR0 = { 0.01f, 0.01f, 0.01f };
 	float Roughness = 0.25f;
 
-	// 	텍스처 매핑에 사용
+	// Used in texture mapping.
 	DirectX::XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
 };
 
-
-//  프로덕션 3D 엔진
-// 머티리얼의 클래스 계층을 만들 것입니다
+// Simple struct to represent a material for our demos.  A production 3D engine
+// would likely create a class hierarchy of Materials.
 struct Material
 {
-	// 	찾아 보기위한 고유 한 재료 이름입니다.
+	// Unique material name for lookup.
 	std::string Name;
 
-	// 이 재료에 해당하는 상수 버퍼로 색인하십시오.
+	// Index into constant buffer corresponding to this material.
 	int MatCBIndex = -1;
 
-	// 	확산 텍스처를 위해 SRV 힙으로 색인합니다
+	// Index into SRV heap for diffuse texture.
 	int DiffuseSrvHeapIndex = -1;
 
-	// 정상적인 질감을 위해 SRV 힙으로 색인합니다.
+	// Index into SRV heap for normal texture.
 	int NormalSrvHeapIndex = -1;
 
-
-	// 재질이 변경되었음을 나타내는 Dirty 플래그이며 상수 버퍼를 업데이트해야합니다.
-	// 각 FrameResource에 대한 머티리얼 상수 버퍼가 있기 때문에
-	// 각 FrameResource로 업데이트합니다. 따라서 머티리얼을 수정할 때 설정해야합니다
-	// 각 프레임 리소스가 업데이트를 받도록 NumFramesDirty = gNumFrameResources.
+	// Dirty flag indicating the material has changed and we need to update the constant buffer.
+	// Because we have a material constant buffer for each FrameResource, we have to apply the
+	// update to each FrameResource.  Thus, when we modify a material we should set 
+	// NumFramesDirty = gNumFrameResources so that each frame resource gets the update.
 	int NumFramesDirty = gNumFrameResources;
 
-
-	// 쉐이딩에 사용되는 머티리얼 상수 버퍼 데이터.
+	// Material constant buffer data used for shading.
 	DirectX::XMFLOAT4 DiffuseAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f };
 	DirectX::XMFLOAT3 FresnelR0 = { 0.01f, 0.01f, 0.01f };
 	float Roughness = .25f;
@@ -230,8 +265,7 @@ struct Material
 
 struct Texture
 {
-	
-// 조회를위한 고유 한 재료 이름.
+	// Unique material name for lookup.
 	std::string Name;
 
 	std::wstring Filename;
