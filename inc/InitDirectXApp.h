@@ -41,6 +41,17 @@ struct RenderItem {
 	int BaseVertexLocation = 0;
 };
 
+
+enum class RenderLayer : int
+{
+	Opaque = 0,
+	Mirrors,
+	Reflected,
+	Transparent,
+	Shadow,
+	Count
+};
+
 class InitDirect3DApp : public D3DApp
 {
 public:
@@ -68,32 +79,24 @@ private:
 
 	void UpdateMaterialCBs(const GameTimer& gt);
 	void AnimateMaterials(const GameTimer& gt);
+	void UpdateReflectedPassCB(const GameTimer& gt);
 
 
 	void LoadTextures();
 	void BuildRootSignature();
 	void BuildDescriptorHeaps();
-    void BuildShadersAndInputLayout();
-	void BuildShapeGeometry();
-    void BuildPSOs();
-    void BuildFrameResources();
-    void BuildMaterials();
-    void BuildRenderItems();
+	void BuildShadersAndInputLayout();
+	void BuildRoomGeometry();
+	void BuildSkullGeometry();
+	void BuildPSOs();
+	void BuildFrameResources();
+	void BuildMaterials();
+	void BuildRenderItems();
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
  
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
 private:
-
-	ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
-	ComPtr<ID3D12DescriptorHeap> mCbvHeap = nullptr;
-
-	std::unique_ptr<UploadBuffer<ObjectConstants>> mObjectCB = nullptr;
-
-	std::unique_ptr<MeshGeometry> mBoxGeo = nullptr;
-
-	ComPtr<ID3DBlob> mvsByteCode = nullptr;
-	ComPtr<ID3DBlob> mpsByteCode = nullptr;
 
 	std::vector<std::unique_ptr<FrameResource>> mFrameResources;
 	FrameResource* mCurrFrameResource = nullptr;
@@ -101,30 +104,41 @@ private:
 
 	UINT mCbvSrvDescriptorSize = 0;
 
+	ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
+
 	ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap = nullptr;
 
 	std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
 	std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
 	std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
 	std::unordered_map<std::string, ComPtr<ID3DBlob>> mShaders;
+	std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> mPSOs;
 
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
 
-	ComPtr<ID3D12PipelineState> mOpaquePSO = nullptr;
+	// Cache render items of interest.
+	RenderItem* mSkullRitem = nullptr;
+	RenderItem* mReflectedSkullRitem = nullptr;
+	RenderItem* mShadowedSkullRitem = nullptr;
 
+	// List of all the render items.
 	std::vector<std::unique_ptr<RenderItem>> mAllRitems;
-	std::vector<RenderItem*> mOpaqueRitems;
+
+	// Render items divided by PSO.
+	std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
 
 	PassConstants mMainPassCB;
+	PassConstants mReflectedPassCB;
 
-	XMFLOAT4X4 mWorld = MathHelper::Identity4x4();
+	XMFLOAT3 mSkullTranslation = { 0.0f, 1.0f, -5.0f };
+
 	XMFLOAT3 mEyePos = { 0.0f, 0.0f, 0.0f };
 	XMFLOAT4X4 mView = MathHelper::Identity4x4();
 	XMFLOAT4X4 mProj = MathHelper::Identity4x4();
 
-	float mTheta = 1.5f * XM_PI;
-	float mPhi = XM_PIDIV4;
-	float mRadius = 5.0f;
+	float mTheta = 1.24f * XM_PI;
+	float mPhi = 0.42f * XM_PI;
+	float mRadius = 12.0f;
 
 	POINT mLastMousePos;
 };

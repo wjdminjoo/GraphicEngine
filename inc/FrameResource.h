@@ -33,6 +33,10 @@ struct PassConstants {
 
 	DirectX::XMFLOAT4 AmbientLight = { 0.0f, 0.0f, 0.0f, 1.0f };
 
+	DirectX::XMFLOAT4 FogColor = { 0.7f, 0.7f, 0.7f, 1.0f };
+	float gFogStart = 5.0f;
+	float gFogRange = 150.0f;
+	DirectX::XMFLOAT2 cbPerObjectPad2;
 
 	// 인덱스 [0, NUM_DIR_LIGHTS)는 방향 조명
 	// 인덱스 [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS + NUM_POINT_LIGHTS)는 포인트 라이트
@@ -44,9 +48,16 @@ struct PassConstants {
 
 struct Vertex
 {
+	Vertex() = default;
+	Vertex(float x, float y, float z, float nx, float ny, float nz, float u, float v) :
+		Pos(x, y, z),
+		Normal(nx, ny, nz),
+		TexC(u, v) {}
+
 	DirectX::XMFLOAT3 Pos;
 	DirectX::XMFLOAT3 Normal;
 	DirectX::XMFLOAT2 TexC;
+	
 };
 
 struct FrameResource

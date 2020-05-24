@@ -12,6 +12,11 @@ Reference Introduction to 3D game programming using directX12
 SCREENSHOT
 -----------------------------------------------------------------------------------------------------------------------------------------
 
+Add Mirror and Shadow
+![1](https://user-images.githubusercontent.com/43086720/82753386-1a7fe780-9e00-11ea-9145-d3b4ce7f8996.gif)
+
+-----------------------------------------------------------------------------------------------------------------------------------------
+
 Add Texture and Light
 ![GIF 2020-05-23 ¿ÀÈÄ 7-35-15](https://user-images.githubusercontent.com/43086720/82728637-9b6daf00-9d2c-11ea-9f56-ca79a88fab72.gif)
 
