@@ -12,6 +12,11 @@ Reference Introduction to 3D game programming using directX12
 SCREENSHOT
 -----------------------------------------------------------------------------------------------------------------------------------------
 
+Add IMGUI and Camera
+![addGUI](https://user-images.githubusercontent.com/43086720/83014328-78f3d280-a059-11ea-9e26-0d29228bd025.gif)
+
+-----------------------------------------------------------------------------------------------------------------------------------------
+
 Add Mirror and Shadow
 ![1](https://user-images.githubusercontent.com/43086720/82753386-1a7fe780-9e00-11ea-9145-d3b4ce7f8996.gif)
 

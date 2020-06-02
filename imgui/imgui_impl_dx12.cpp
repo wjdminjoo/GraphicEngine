@@ -471,6 +471,7 @@ bool    ImGui_ImplDX12_CreateDeviceObjects()
     psoDesc.SampleDesc.Count = 1;
     psoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
 
+
     ID3DBlob* vertexShaderBlob;
     ID3DBlob* pixelShaderBlob;
 
