@@ -8,14 +8,12 @@
 #include "GeometryGenerator.h"
 #include "Camera.h"
 #include "FrameResource.h"
-//#include "Textures.h"
-//#include "Materials.h"
-//#include <FbxGenerator.h>
+#include "FbxLoader.h"
 
-//#include <fbxsdk.h>
 #include <imgui.h>
 #include <imgui_impl_dx12.h>
 #include <imgui_impl_win32.h>
+
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 using namespace DirectX::PackedVector;
@@ -129,9 +127,10 @@ private:
 	Camera mCamera;
 
 	POINT mLastMousePos;
-	//Materials fbxmMaterials;
-	//Texture fbxTextures;
 
+	// TEST
+	FbxLoader fbxLoader;
+	std::vector<FBXVERTEX>* fbxVertex = nullptr;
 };
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -190,7 +189,7 @@ bool CameraAndDynamicIndexingApp::Initialize()
 	BuildRenderItems();
 	BuildFrameResources();
 	BuildPSOs();
-
+	fbxLoader.LoadFBX(fbxVertex);
 	// Execute the initialization commands.
 	ThrowIfFailed(mCommandList->Close());
 	ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };

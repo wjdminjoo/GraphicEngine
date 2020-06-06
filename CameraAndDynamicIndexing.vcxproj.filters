@@ -16,6 +16,12 @@
     <Filter Include="Imgui">
       <UniqueIdentifier>{1ed19fcc-d341-465b-af63-d76bdc25f82a}</UniqueIdentifier>
     </Filter>
+    <Filter Include="inc/Fbx">
+      <UniqueIdentifier>{54b2c5b8-0a0f-43a0-94a6-95a835be5178}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src/Fbx">
+      <UniqueIdentifier>{cbd52519-8fb5-4453-a258-9a0912edf6b3}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\..\..\..\..\Engine\graphicengine\imgui\imgui.cpp">
@@ -63,20 +69,20 @@
     <ClCompile Include="src\MathHelper.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\FbxLoader.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="src\FbxGenerator.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="src\Materials.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="src\Textures.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>src/Fbx</Filter>
     </ClCompile>
     <ClCompile Include="src\TextureLoader.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>src/Fbx</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Textures.cpp">
+      <Filter>src/Fbx</Filter>
+    </ClCompile>
+    <ClCompile Include="src\FbxLoader.cpp">
+      <Filter>src/Fbx</Filter>
+    </ClCompile>
+    <ClCompile Include="src\FbxGenerator.cpp">
+      <Filter>src/Fbx</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -134,20 +140,20 @@
     <ClInclude Include="inc\UploadBuffer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="inc\FbxLoader.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="inc\FbxGenerator.h">
-      <Filter>Header Files</Filter>
+      <Filter>inc/Fbx</Filter>
+    </ClInclude>
+    <ClInclude Include="inc\FbxLoader.h">
+      <Filter>inc/Fbx</Filter>
     </ClInclude>
     <ClInclude Include="inc\Materials.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="inc\Textures.h">
-      <Filter>Header Files</Filter>
+      <Filter>inc/Fbx</Filter>
     </ClInclude>
     <ClInclude Include="inc\TextureLoader.h">
-      <Filter>Header Files</Filter>
+      <Filter>inc/Fbx</Filter>
+    </ClInclude>
+    <ClInclude Include="inc\Textures.h">
+      <Filter>inc/Fbx</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
