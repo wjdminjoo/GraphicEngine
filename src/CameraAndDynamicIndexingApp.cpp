@@ -131,6 +131,7 @@ private:
 	// TEST
 	FbxLoader fbxLoader;
 	std::vector<FBXVERTEX>* fbxVertex = nullptr;
+	char* ArchitecturFilePath = "Resource\Architecture\Box\box.FBX";
 };
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -140,7 +141,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 #if defined(DEBUG) | defined(_DEBUG)
 	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 #endif
-
+	 
 	try
 	{
 		CameraAndDynamicIndexingApp theApp(hInstance);
@@ -189,7 +190,11 @@ bool CameraAndDynamicIndexingApp::Initialize()
 	BuildRenderItems();
 	BuildFrameResources();
 	BuildPSOs();
-	fbxLoader.LoadFBX(fbxVertex);
+
+	// TEST
+	fbxLoader.LoadFBX(ArchitecturFilePath);
+
+
 	// Execute the initialization commands.
 	ThrowIfFailed(mCommandList->Close());
 	ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
