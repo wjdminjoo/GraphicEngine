@@ -1,7 +1,3 @@
-//***************************************************************************************
-// CameraAndDynamicIndexingApp.cpp by Frank Luna (C) 2015 All Rights Reserved.
-//***************************************************************************************
-
 #include "d3dApp.h"
 #include "MathHelper.h"
 #include "UploadBuffer.h"
@@ -23,8 +19,6 @@ using namespace DirectX::PackedVector;
 
 const int gNumFrameResources = 3;
 
-// Lightweight structure stores parameters to draw a shape.  This will
-// vary from app-to-app.
 struct RenderItem
 {
 	RenderItem() = default;
@@ -129,8 +123,8 @@ private:
 	POINT mLastMousePos;
 
 	// TEST
-	FbxLoader fbxLoader;
-	std::vector<FBXVERTEX>* fbxVertex = nullptr;
+	FbxLoader* mFbxLoader;
+
 	char* ArchitecturFilePath = "Resource\Architecture\Box\box.FBX";
 };
 
@@ -184,21 +178,26 @@ bool CameraAndDynamicIndexingApp::Initialize()
 	LoadTextures();
 	BuildRootSignature();
 	BuildDescriptorHeaps();
+
+	// TEST
+	mFbxLoader->Begin(md3dDevice.Get(), mCommandList.Get(), mSrvDescriptorHeap.Get());
+	mFbxLoader->useFbxLoader();
+	mFbxLoader->End();
+
 	BuildShadersAndInputLayout();
 	BuildShapeGeometry();
 	BuildMaterials();
 	BuildRenderItems();
+	
 	BuildFrameResources();
 	BuildPSOs();
-
-	// TEST
-	fbxLoader.LoadFBX(ArchitecturFilePath);
-
 
 	// Execute the initialization commands.
 	ThrowIfFailed(mCommandList->Close());
 	ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
 	mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
+
+
 
 	// Wait until initialization is complete.
 	FlushCommandQueue();
@@ -257,7 +256,7 @@ void CameraAndDynamicIndexingApp::Draw(const GameTimer& gt)
 		D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
 
 	// Clear the back buffer and depth buffer.
-	mCommandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightSteelBlue, 0, nullptr);
+	mCommandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::SteelBlue, 0, nullptr);
 	mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
 	// Specify the buffers we are going to render to.
@@ -322,7 +321,7 @@ void CameraAndDynamicIndexingApp::OnMouseUp(WPARAM btnState, int x, int y)
 
 void CameraAndDynamicIndexingApp::OnMouseMove(WPARAM btnState, int x, int y)
 {
-	if ((btnState & MK_LBUTTON) != 0)
+	if ((btnState & MK_RBUTTON) != 0)
 	{
 		// Make each pixel correspond to a quarter of a degree.
 		float dx = XMConvertToRadians(0.25f * static_cast<float>(x - mLastMousePos.x));
@@ -927,8 +926,8 @@ void CameraAndDynamicIndexingApp::DrawRenderItems(ID3D12GraphicsCommandList* cmd
 
 		D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
 
-		// CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-		// tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+		//D3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+		//tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
 
 		cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
 
@@ -947,15 +946,17 @@ void CameraAndDynamicIndexingApp::DrawRenderItems(ID3D12GraphicsCommandList* cmd
 	ImGui_ImplWin32_NewFrame();
 	ImGui::NewFrame();
 
-	ImGui::SetNextWindowSize(ImVec2(this->mClientWidth / 2, 250));
+	ImGui::SetNextWindowSize(ImVec2(this->mClientWidth / 3, this->mClientHeight / 4));
 	ImGui::SetNextWindowCollapsed(false);
-	ImGui::SetNextWindowPos(ImVec2(0, (this->mClientHeight - 250)));
+	ImGui::SetNextWindowPos(ImVec2(0, (this->mClientHeight - 800)));
 	ImGui::Begin("Hello, world!");
 
 	ImGui::Text("This is some useful text.");
 	ImGui::Checkbox("Demo Window", &show_demo_window);
 	ImGui::Checkbox("Another Window", &show_another_window);
 	ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+	ImGui::Text("Position X: %.3f, Position Y: %.3f, Position Z: %.3f", mCamera.GetPosition3f().x, mCamera.GetPosition3f().y, mCamera.GetPosition3f().z);
+	ImGui::Text("View X: %.3f, View Y: %.3f, View Z: %.3f", mCamera.GetLook3f().x, mCamera.GetLook3f().y, mCamera.GetLook3f().z);
 	ImGui::End();
 
 	if (show_another_window)
