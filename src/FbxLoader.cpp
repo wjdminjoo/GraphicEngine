@@ -15,6 +15,8 @@ FbxManager* FbxLoader::globalSdkMgr()
     return gFbxManager;
 }
 
+// 값이 제대로 들어가지 않는다.
+// 어째서 NULL값일까.
 void FbxLoader::Begin(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, ID3D12DescriptorHeap* cbvHeap)
 {
    if (mInBeginEndPair)
