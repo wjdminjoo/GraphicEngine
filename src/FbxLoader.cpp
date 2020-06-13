@@ -19,26 +19,27 @@ FbxManager* FbxLoader::globalSdkMgr()
 // 어째서 NULL값일까.
 void FbxLoader::Begin(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, ID3D12DescriptorHeap* cbvHeap)
 {
-   if (mInBeginEndPair)
+   /*if (mInBeginEndPair)
        throw std::exception("Cannot Begin calls on a FBX Loader");
 
     mDevice = device;
     mCommandList = cmdList;
     mCbvHeap = cbvHeap;
 
-    mInBeginEndPair = true;
+    mInBeginEndPair = true;*/
+
 }
 
 void FbxLoader::End()
 {
-    if (!mInBeginEndPair)
+   /* if (!mInBeginEndPair)
        throw std::exception("Begin must be called before End");
 
     mDevice = nullptr;
     mCommandList = nullptr;
     mCbvHeap = nullptr;
 
-    mInBeginEndPair = false;
+    mInBeginEndPair = false;*/
 }
 
 void FbxLoader::globalMgrDestroy()
@@ -223,14 +224,14 @@ FbxNode* FbxLoader::CreateCube()
     const int vertsPerFace = 4;
 
     FbxVector4 points[] = {
-        FbxVector4(-50, -50, 50),
-        FbxVector4(50, -50, 50),
-        FbxVector4(50, 50, 50),
-        FbxVector4(-50, 50, 50),
-        FbxVector4(-50, -50, -50),
-        FbxVector4(50, -50, -50),
-        FbxVector4(50, 50, -50),
-        FbxVector4(-50, 50, -50) };
+        FbxVector4(-250, -250, 250),
+        FbxVector4(250, -250, 250),
+        FbxVector4(250, 250, 250),
+        FbxVector4(-250, 250, 250),
+        FbxVector4(-250, -250, -250),
+        FbxVector4(250, -250, -250),
+        FbxVector4(250, 250, -250),
+        FbxVector4(-250, 250, -250) };
 
     FbxVector4 normals[] = {
         FbxVector4(0, 0, 1),
@@ -559,5 +560,5 @@ void FbxLoader::useFbxLoader()
 
     ExportFbxScene(fbxSdkManager, scene, "output.fbx");
 
-    // globalMgrDestroy();
+    globalMgrDestroy();
 }

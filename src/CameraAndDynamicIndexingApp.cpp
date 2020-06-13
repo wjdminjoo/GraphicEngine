@@ -5,7 +5,7 @@
 #include "Camera.h"
 #include "FrameResource.h"
 #include "FbxLoader.h"
-
+#include "fbxTestLoader.h"
 #include <imgui.h>
 #include <imgui_impl_dx12.h>
 #include <imgui_impl_win32.h>
@@ -124,8 +124,7 @@ private:
 
 	// TEST
 	FbxLoader* mFbxLoader;
-
-	char* ArchitecturFilePath = "Resource\Architecture\Box\box.FBX";
+	std::vector<Vertex> test;
 };
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -179,10 +178,13 @@ bool CameraAndDynamicIndexingApp::Initialize()
 	BuildRootSignature();
 	BuildDescriptorHeaps();
 
-	// TEST
-	mFbxLoader->Begin(md3dDevice.Get(), mCommandList.Get(), mSrvDescriptorHeap.Get());
+	// START TEST
+	/*mFbxLoader->Begin(md3dDevice.Get(), mCommandList.Get(), mSrvDescriptorHeap.Get());
 	mFbxLoader->useFbxLoader();
-	mFbxLoader->End();
+	mFbxLoader->End();*/
+	LoadFBX(test);
+	test.size();
+	// END TEST
 
 	BuildShadersAndInputLayout();
 	BuildShapeGeometry();
@@ -607,18 +609,12 @@ void CameraAndDynamicIndexingApp::BuildShadersAndInputLayout()
 
 void CameraAndDynamicIndexingApp::BuildShapeGeometry()
 {
-	//FBXGenerator fbxGen;
-	//fbxGen.Begin(md3dDevice.Get(), mCommandList.Get(), mSrvDescriptorHeap.Get());
-
-	//fbxGen.LoadFBXArchitecture(mGeometries, mTextures, fbxmMaterials);
-	//fbxGen.End();
 
 	GeometryGenerator geoGen;
 	GeometryGenerator::MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 3);
 	GeometryGenerator::MeshData grid = geoGen.CreateGrid(20.0f, 30.0f, 60, 40);
 	GeometryGenerator::MeshData sphere = geoGen.CreateSphere(0.5f, 20, 20);
 	GeometryGenerator::MeshData cylinder = geoGen.CreateCylinder(0.5f, 0.3f, 3.0f, 20, 20);
-
 	//
 	// We are concatenating all the geometry into one big vertex/index buffer.  So
 	// define the regions in the buffer each submesh covers.
@@ -656,6 +652,13 @@ void CameraAndDynamicIndexingApp::BuildShapeGeometry()
 	cylinderSubmesh.StartIndexLocation = cylinderIndexOffset;
 	cylinderSubmesh.BaseVertexLocation = cylinderVertexOffset;
 
+
+	//TEST
+	SubmeshGeometry architectureSubmesh;
+	architectureSubmesh.IndexCount = (UINT)test.size();
+	architectureSubmesh.StartIndexLocation = test.at(0).Pos.x;
+	architectureSubmesh.BaseVertexLocation = test.at(0).Pos.x;
+
 	//
 	// Extract the vertex elements we are interested in and pack the
 	// vertices of all the meshes into one vertex buffer.
@@ -665,11 +668,15 @@ void CameraAndDynamicIndexingApp::BuildShapeGeometry()
 		box.Vertices.size() +
 		grid.Vertices.size() +
 		sphere.Vertices.size() +
-		cylinder.Vertices.size();
+		cylinder.Vertices.size() +
+		test.size();
 
 	std::vector<Vertex> vertices(totalVertexCount);
 
+
+
 	UINT k = 0;
+
 	for (size_t i = 0; i < box.Vertices.size(); ++i, ++k)
 	{
 		vertices[k].Pos = box.Vertices[i].Position;
@@ -698,11 +705,27 @@ void CameraAndDynamicIndexingApp::BuildShapeGeometry()
 		vertices[k].TexC = cylinder.Vertices[i].TexC;
 	}
 
+	for (size_t i = 0; i < cylinder.Vertices.size(); ++i, ++k)
+	{
+		vertices[k].Pos = cylinder.Vertices[i].Position;
+		vertices[k].Normal = cylinder.Vertices[i].Normal;
+		vertices[k].TexC = cylinder.Vertices[i].TexC;
+	}
+
+	// TEST
+	for (size_t i = 0; i < test.size(); ++i, ++k)
+	{
+		vertices[k].Pos = test.at(i).Pos;
+		vertices[k].Normal = test.at(i).Normal;
+		vertices[k].TexC = test.at(i).TexC;
+	}
+	// TEST
 	std::vector<std::uint16_t> indices;
 	indices.insert(indices.end(), std::begin(box.GetIndices16()), std::end(box.GetIndices16()));
 	indices.insert(indices.end(), std::begin(grid.GetIndices16()), std::end(grid.GetIndices16()));
 	indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
 	indices.insert(indices.end(), std::begin(cylinder.GetIndices16()), std::end(cylinder.GetIndices16()));
+	//indices.insert(indices.end(), std::begin(architecture.GetIndices16()), std::end(architecture.GetIndices16()));
 
 	const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
 	const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
@@ -731,6 +754,7 @@ void CameraAndDynamicIndexingApp::BuildShapeGeometry()
 	geo->DrawArgs["grid"] = gridSubmesh;
 	geo->DrawArgs["sphere"] = sphereSubmesh;
 	geo->DrawArgs["cylinder"] = cylinderSubmesh;
+	geo->DrawArgs["cylinder"] = architectureSubmesh;
 
 	mGeometries[geo->Name] = std::move(geo);
 }
@@ -842,6 +866,18 @@ void CameraAndDynamicIndexingApp::BuildRenderItems()
 	gridRitem->StartIndexLocation = gridRitem->Geo->DrawArgs["grid"].StartIndexLocation;
 	gridRitem->BaseVertexLocation = gridRitem->Geo->DrawArgs["grid"].BaseVertexLocation;
 	mAllRitems.push_back(std::move(gridRitem));
+
+	auto architectur = std::make_unique<RenderItem>();
+	architectur->World = MathHelper::Identity4x4();
+	XMStoreFloat4x4(&architectur->TexTransform, XMMatrixScaling(8.0f, 8.0f, 1.0f));
+	architectur->ObjCBIndex = 1;
+	architectur->Mat = mMaterials["tile0"].get();
+	architectur->Geo = mGeometries["shapeGeo"].get();
+	architectur->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	architectur->IndexCount = architectur->Geo->DrawArgs["grid"].IndexCount;
+	architectur->StartIndexLocation = architectur->Geo->DrawArgs["grid"].StartIndexLocation;
+	architectur->BaseVertexLocation = architectur->Geo->DrawArgs["grid"].BaseVertexLocation;
+	mAllRitems.push_back(std::move(architectur));
 
 	XMMATRIX brickTexTransform = XMMatrixScaling(1.0f, 1.0f, 1.0f);
 	UINT objCBIndex = 2;
