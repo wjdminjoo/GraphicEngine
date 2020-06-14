@@ -653,11 +653,11 @@ void CameraAndDynamicIndexingApp::BuildShapeGeometry()
 	cylinderSubmesh.BaseVertexLocation = cylinderVertexOffset;
 
 
-	//TEST
-	SubmeshGeometry architectureSubmesh;
-	architectureSubmesh.IndexCount = (UINT)test.size();
-	architectureSubmesh.StartIndexLocation = test.at(0).Pos.x;
-	architectureSubmesh.BaseVertexLocation = test.at(0).Pos.x;
+	////TEST
+	//SubmeshGeometry architectureSubmesh;
+	//architectureSubmesh.IndexCount = (UINT)test.size();
+	//architectureSubmesh.StartIndexLocation = test[0].Pos.x;
+	//architectureSubmesh.BaseVertexLocation = test[0].Pos.x;
 
 	//
 	// Extract the vertex elements we are interested in and pack the
@@ -668,8 +668,8 @@ void CameraAndDynamicIndexingApp::BuildShapeGeometry()
 		box.Vertices.size() +
 		grid.Vertices.size() +
 		sphere.Vertices.size() +
-		cylinder.Vertices.size() +
-		test.size();
+		cylinder.Vertices.size();
+		//test.size();
 
 	std::vector<Vertex> vertices(totalVertexCount);
 
@@ -705,26 +705,19 @@ void CameraAndDynamicIndexingApp::BuildShapeGeometry()
 		vertices[k].TexC = cylinder.Vertices[i].TexC;
 	}
 
-	for (size_t i = 0; i < cylinder.Vertices.size(); ++i, ++k)
-	{
-		vertices[k].Pos = cylinder.Vertices[i].Position;
-		vertices[k].Normal = cylinder.Vertices[i].Normal;
-		vertices[k].TexC = cylinder.Vertices[i].TexC;
-	}
-
 	// TEST
-	for (size_t i = 0; i < test.size(); ++i, ++k)
+	/*for (size_t i = 0; i < test.size(); ++i, ++k)
 	{
 		vertices[k].Pos = test.at(i).Pos;
 		vertices[k].Normal = test.at(i).Normal;
 		vertices[k].TexC = test.at(i).TexC;
-	}
-	// TEST
+	}*/
 	std::vector<std::uint16_t> indices;
 	indices.insert(indices.end(), std::begin(box.GetIndices16()), std::end(box.GetIndices16()));
 	indices.insert(indices.end(), std::begin(grid.GetIndices16()), std::end(grid.GetIndices16()));
 	indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
 	indices.insert(indices.end(), std::begin(cylinder.GetIndices16()), std::end(cylinder.GetIndices16()));
+	// TEST
 	//indices.insert(indices.end(), std::begin(architecture.GetIndices16()), std::end(architecture.GetIndices16()));
 
 	const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
@@ -754,7 +747,9 @@ void CameraAndDynamicIndexingApp::BuildShapeGeometry()
 	geo->DrawArgs["grid"] = gridSubmesh;
 	geo->DrawArgs["sphere"] = sphereSubmesh;
 	geo->DrawArgs["cylinder"] = cylinderSubmesh;
-	geo->DrawArgs["cylinder"] = architectureSubmesh;
+
+	//TEST
+	//geo->DrawArgs["cylinder"] = architectureSubmesh;
 
 	mGeometries[geo->Name] = std::move(geo);
 }
