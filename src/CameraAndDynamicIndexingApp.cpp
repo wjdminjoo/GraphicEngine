@@ -668,8 +668,8 @@ void CameraAndDynamicIndexingApp::BuildShapeGeometry()
 		box.Vertices.size() +
 		grid.Vertices.size() +
 		sphere.Vertices.size() +
-		cylinder.Vertices.size();
-		//test.size();
+		cylinder.Vertices.size()
+		* test.size();
 
 	std::vector<Vertex> vertices(totalVertexCount);
 
@@ -706,12 +706,13 @@ void CameraAndDynamicIndexingApp::BuildShapeGeometry()
 	}
 
 	// TEST
-	/*for (size_t i = 0; i < test.size(); ++i, ++k)
+	for (size_t i = 0; i < test.size(); ++i, ++k)
 	{
 		vertices[k].Pos = test.at(i).Pos;
 		vertices[k].Normal = test.at(i).Normal;
 		vertices[k].TexC = test.at(i).TexC;
-	}*/
+	}
+
 	std::vector<std::uint16_t> indices;
 	indices.insert(indices.end(), std::begin(box.GetIndices16()), std::end(box.GetIndices16()));
 	indices.insert(indices.end(), std::begin(grid.GetIndices16()), std::end(grid.GetIndices16()));
