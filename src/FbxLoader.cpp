@@ -1,564 +1,339 @@
 #include "FbxLoader.h"
 #include <assert.h>
+#include <cstdio>
+#include <Textures.h>
+static void CreateTexture(FbxScene* pScene, FbxMesh* pMesh);
+static void GetFBXVertexData(FbxMesh* pMesh, VertexDataArray& outVertexData);
+static void GetMatrialData(FbxSurfaceMaterial* mat);
+static void GetMeshData(FbxNode* child, VertexDataArray& outVertexData);
 
-FbxManager* gFbxManager = NULL;
-
-
-
-FbxManager* FbxLoader::globalSdkMgr()
+bool LoadFBXConvertToVertexData(const char* filename, VertexDataArray& outVertexData)
 {
-    if (gFbxManager == NULL)
-    {
-        gFbxManager = FbxManager::Create();
-        assert(gFbxManager != NULL);
-    }
-    return gFbxManager;
+	FbxManager* pFBXManager = FbxManager::Create();
+
+	FbxScene* pScene = FbxScene::Create(pFBXManager, "");
+
+	FbxIOSettings* pIO = FbxIOSettings::Create(pFBXManager, IOSROOT);
+	pFBXManager->SetIOSettings(pIO);
+
+	FbxImporter* pImporter = FbxImporter::Create(pFBXManager, "");
+
+	if (pImporter->Initialize(filename, -1, pFBXManager->GetIOSettings()) == false)
+	{
+		return false;
+	}
+
+	if (pImporter->Import(pScene) == false)
+	{
+		return false;
+	}
+
+	pImporter->Destroy();
+
+	FbxGeometryConverter geometryConverte(pFBXManager);
+	geometryConverte.Triangulate(pScene, true);
+
+	GetMeshData(pScene->GetRootNode(), outVertexData);
+
+	pIO->Destroy();
+	pScene->Destroy();
+	pFBXManager->Destroy();
+
+	getchar();
+
+	return true;
 }
 
-// 값이 제대로 들어가지 않는다.
-// 어째서 NULL값일까.
-void FbxLoader::Begin(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, ID3D12DescriptorHeap* cbvHeap)
+void GetMeshData(FbxNode* parent, VertexDataArray& outVertexData)
 {
-   /*if (mInBeginEndPair)
-       throw std::exception("Cannot Begin calls on a FBX Loader");
+	int numKids = parent->GetChildCount();
+	for (int i = 0; i < numKids; i++)
+	{
+		FbxNode* child = parent->GetChild(i);
+		if (child->GetMesh())
+		{
+			FbxMesh* pMesh = child->GetMesh();
+			printf("Mesh\n");
 
-    mDevice = device;
-    mCommandList = cmdList;
-    mCbvHeap = cbvHeap;
+			printf("Mesh Name:%s\n", pMesh->GetName());
+			printf("Mesh Polygon Count:%d\n", pMesh->GetPolygonCount());
+			printf("Mesh MaterialCount:%d\n", pMesh->GetElementMaterialCount());
 
-    mInBeginEndPair = true;*/
+			printf("Mesh COntrolPointsCount:%d\n", pMesh->GetControlPointsCount());
+			printf("Mesh Texture UVCount:%d\n", pMesh->GetTextureUVCount());
 
+			FbxArray<FbxVector4> normals;
+			pMesh->GetPolygonVertexNormals(normals);
+			printf("Mesh Normals Count:%d\n", normals.GetCount());
+
+			GetFBXVertexData(pMesh, outVertexData);
+
+			//auto eyeTex = FbxSurfaceMaterial::Create(pMesh, "eye.jpg");
+			//child->AddMaterial(eyeTex);
+
+
+		}
+
+
+
+		int numMat = child->GetMaterialCount();
+
+		for (int j = 0; j < numMat; ++j)
+		{
+			FbxSurfaceMaterial* mat = child->GetMaterial(j);
+			if (mat)
+			{
+				GetMatrialData(mat);
+			}
+		}
+
+		if (numMat == 0)
+		{
+			printf("Material None\n");
+		}
+
+		child->GetChild(0);
+
+		GetMeshData(child, outVertexData);
+	}
 }
 
-void FbxLoader::End()
+void GetFBXVertexData(FbxMesh* pMesh, VertexDataArray& outVertexData)
 {
-   /* if (!mInBeginEndPair)
-       throw std::exception("Begin must be called before End");
+	std::vector<FbxVector4> positions, normals;
+	FbxVector4 normal;
 
-    mDevice = nullptr;
-    mCommandList = nullptr;
-    mCbvHeap = nullptr;
+	for (int i = 0; i < pMesh->GetPolygonCount(); i++)
+	{
+		for (int j = 0; j < pMesh->GetPolygonSize(i); j++)
+		{
+			positions.push_back(pMesh->GetControlPointAt(pMesh->GetPolygonVertex(i, j)));
 
-    mInBeginEndPair = false;*/
+			pMesh->GetPolygonVertexNormal(i, j, normal);
+			normals.push_back(normal);
+		}
+	}
+
+	outVertexData.resize(positions.size());
+
+	for (size_t i = 0; i < outVertexData.size(); ++i)
+	{
+		fbxsdk::FbxVector4& pos = positions[i];
+		fbxsdk::FbxVector4& normal = normals[i];
+
+		outVertexData[i].pos = DirectX::XMFLOAT3(pos.mData[0], pos.mData[1], pos.mData[2]);
+		outVertexData[i].normal = DirectX::XMFLOAT4(normal.mData[0], normal.mData[1], normal.mData[2], normal.mData[3]);
+	}
+
+	FbxStringList uvSetNames;
+	pMesh->GetUVSetNames(uvSetNames);
+
+	bool unmapped = false;
+	int UVCount = 0;
+
+	for (int i = 0; i < uvSetNames.GetCount(); ++i)
+	{
+		for (int j = 0; j < pMesh->GetPolygonCount(); ++j)
+		{
+			for (int k = 0; k < pMesh->GetPolygonSize(j); ++k)
+			{
+				FbxVector2 UV;
+				pMesh->GetPolygonVertexUV(j, k, uvSetNames.GetStringAt(i), UV, unmapped);
+
+				if (outVertexData.size() > UVCount)
+				{
+					outVertexData[UVCount].uv = DirectX::XMFLOAT2(UV.mData[0], UV.mData[1]);
+				}
+				UVCount++;
+			}
+		}
+	}
 }
 
-void FbxLoader::globalMgrDestroy()
+FbxDouble3 GetMaterialProperty(
+	const FbxSurfaceMaterial* pMaterial,
+	const char* pPropertyName,
+	const char* pFactorPropertyName)
 {
-    gFbxManager->Destroy();
-    gFbxManager = NULL;
+	FbxDouble3 lResult(0, 0, 0);
+	const FbxProperty lProperty = pMaterial->FindProperty(pPropertyName);
+	const FbxProperty lFactorProperty = pMaterial->FindProperty(pFactorPropertyName);
+	if (lProperty.IsValid() && lFactorProperty.IsValid())
+	{
+		lResult = lProperty.Get<FbxDouble3>();
+		double lFactor = lFactorProperty.Get<FbxDouble>();
+		if (lFactor != 1)
+		{
+			lResult[0] *= lFactor;
+			lResult[1] *= lFactor;
+			lResult[2] *= lFactor;
+		}
+	}
+
+	if (lProperty.IsValid())
+	{
+		printf("Texture\n");
+		const int lTextureCount = lProperty.GetSrcObjectCount<FbxFileTexture>();
+		for (int i = 0; i < lTextureCount; i++)
+		{
+			FbxFileTexture* lFileTexture = lProperty.GetSrcObject<FbxFileTexture>(i);
+			if (lFileTexture)
+			{
+				FbxString uvsetName = lFileTexture->UVSet.Get();
+				std::string uvSetString = uvsetName.Buffer();
+				std::string filepath = lFileTexture->GetFileName();
+
+				printf("UVSet Name=%s\n", uvSetString.c_str());
+				printf("Texture Name=%s\n", filepath.c_str());
+			}
+		}
+		puts("");
+
+		printf("Layered Texture\n");
+		const int lLayeredTextureCount = lProperty.GetSrcObjectCount<FbxLayeredTexture>();
+		for (int i = 0; i < lLayeredTextureCount; i++)
+		{
+			FbxLayeredTexture* lLayeredTexture = lProperty.GetSrcObject<FbxLayeredTexture>(i);
+
+			const int lTextureFileCount = lLayeredTexture->GetSrcObjectCount<FbxFileTexture>();
+
+			for (int j = 0; j < lTextureFileCount; j++)
+			{
+				FbxFileTexture* lFileTexture = lLayeredTexture->GetSrcObject<FbxFileTexture>(j);
+				if (lFileTexture)
+				{
+					FbxString uvsetName = lFileTexture->UVSet.Get();
+					std::string uvSetString = uvsetName.Buffer();
+					std::string filepath = lFileTexture->GetFileName();
+
+					printf("UVSet Name=%s\n", uvSetString.c_str());
+					printf("Texture Name=%s\n", filepath.c_str());
+				}
+			}
+		}
+		puts("");
+	}
+
+	return lResult;
 }
 
-// Create a directional camera with target
-// 
-FbxNode* FbxLoader::CreateCamera(FbxScene* pScene, FbxVector4 vecFrom, FbxVector4 vecTo)
+void GetMatrialData(FbxSurfaceMaterial* mat)
 {
-    FbxCamera* lCamera = FbxCamera::Create(pScene, "Camera");
+	if (mat == nullptr)
+	{
+		return;
+	}
 
-    // Modify some camera default settings.
-    lCamera->SetApertureMode(FbxCamera::eVertical);
-    lCamera->SetApertureWidth(0.816);
-    lCamera->SetApertureHeight(0.612);
-    lCamera->SetSqueezeRatio(0.5);
+	puts("");
 
-    FbxNode* lNodeCamera = FbxNode::Create(pScene, "CameraNode");
-    lNodeCamera->LclTranslation.Set(vecFrom);
-    lNodeCamera->SetNodeAttribute(lCamera);
+	if (mat->GetClassId().Is(FbxSurfaceLambert::ClassId))
+	{
+		printf("Lambert ClassId \n");
+	}
+	else if (mat->GetClassId().Is(FbxSurfacePhong::ClassId))
+	{
+		printf("Phong ClassId\n");
+	}
 
-    FbxMarker* lMarker = FbxMarker::Create(pScene, "TestCameraTarget");
+	const FbxDouble3 lEmissive = GetMaterialProperty(mat, FbxSurfaceMaterial::sEmissive, FbxSurfaceMaterial::sEmissiveFactor);
+	printf("lEmissive:r = %f, g = %f, b = %f\n", lEmissive.mData[0], lEmissive.mData[1], lEmissive.mData[2]);
 
-    FbxNode* lNodeTarget = FbxNode::Create(pScene, "TestCameraTarget");
-    lNodeTarget->LclTranslation.Set(vecTo);
-    lNodeTarget->SetNodeAttribute(lMarker);
+	const FbxDouble3 lAmbient = GetMaterialProperty(mat, FbxSurfaceMaterial::sAmbient, FbxSurfaceMaterial::sAmbientFactor);
+	printf("lAmbient:r = %f, g = %f, b = %f\n", lAmbient.mData[0], lAmbient.mData[1], lAmbient.mData[2]);
 
-    lNodeCamera->SetTarget(lNodeTarget);
+	const FbxDouble3 lDiffuse = GetMaterialProperty(mat, FbxSurfaceMaterial::sDiffuse, FbxSurfaceMaterial::sDiffuseFactor);
+	printf("lDiffuse:r = %f, g = %f, b = %f\n", lDiffuse.mData[0], lDiffuse.mData[1], lDiffuse.mData[2]);
 
-    return lNodeCamera;
-}
+	const FbxDouble3 lSpecular = GetMaterialProperty(mat, FbxSurfaceMaterial::sSpecular, FbxSurfaceMaterial::sSpecularFactor);
+	printf("lSpecular:r = %f, g = %f, b = %f\n", lSpecular.mData[0], lSpecular.mData[1], lSpecular.mData[2]);
 
-// Create a light.
-//
-FbxNode* FbxLoader::CreateLight(FbxScene* pScene, FbxDouble3 position)
-{
-    FbxString lLightName;
-    lLightName = "PointLight";
+	FbxProperty lTransparencyFactorProperty = mat->FindProperty(FbxSurfaceMaterial::sTransparencyFactor);
+	if (lTransparencyFactorProperty.IsValid())
+	{
+		double lTransparencyFactor = lTransparencyFactorProperty.Get<FbxDouble>();
+		printf("Transparency Factor = %lf\n", lTransparencyFactor);
+	}
 
-    FbxLight* lFbxLight = FbxLight::Create(pScene, lLightName.Buffer());
-
-    lFbxLight->LightType.Set(FbxLight::ePoint);
-
-    // Light Color...
-    //
-    FbxDouble3 lColor;
-    lColor[0] = 1;
-    lColor[1] = 1;
-    lColor[2] = 1;
-    lFbxLight->Color.Set(lColor);
-
-    // Light Intensity...
-    //
-    lFbxLight->Intensity.Set(100.0);
-
-    FbxNode* lNode = FbxNode::Create(pScene, lLightName + "Node");
-
-    // set the node attribute
-    lNode->SetNodeAttribute(lFbxLight);
-    lNode->LclTranslation.Set(position);
-
-    return lNode;
-}
-
-// Create user defined properties
-//
-void FbxLoader::CreateUserProperties(FbxNode* pNode, FbxObject* pObj)
-{
-    // Now we create the user properties 
-    FbxProperty custPropBool = FbxProperty::Create(pNode, FbxBoolDT, "ADN_Bool", "ADN Sample Bool Property");
-    FbxProperty custPropInt = FbxProperty::Create(pNode, FbxIntDT, "ADN_Integer", "ADN Sample Integer Property");
-    FbxProperty custPropStrList = FbxProperty::Create(pNode, FbxStringListDT, "ADN_StringList", "");
-
-    custPropBool.ConnectSrcObject(pObj, FbxConnection::eReference);
-    custPropInt.ConnectSrcObject(pObj, FbxConnection::eReference);
-    custPropStrList.ConnectSrcObject(pObj, FbxConnection::eReference);
-
-    /*
-    NOTE: The properties labels exists only while the property object is in memory.
-    The label is not saved in the FBX file. When loading properties from the FBX file
-    it will take the same value as the property name.
-    */
-
-    // we now fill the properties. All the properties are user properties so we set the
-    // correct flag
-    custPropBool.ModifyFlag(FbxPropertyFlags::eUserDefined, true);
-    custPropInt.ModifyFlag(FbxPropertyFlags::eUserDefined, true);
-    custPropStrList.ModifyFlag(FbxPropertyFlags::eUserDefined, true);
-
-    // we set the default values
-    custPropBool.Set(false);
-    custPropInt.Set(0);
-
-    // and some limits
-    custPropInt.SetLimits(0, 10);
-
-    // add elements to the list
-    custPropStrList.AddEnumValue("one");
-    custPropStrList.AddEnumValue("two");
-    custPropStrList.AddEnumValue("three");
-    custPropStrList.AddEnumValue("Four");
-    custPropStrList.InsertEnumValue(0, "zero");
-}
-
-void FbxLoader::PrintLevel(int level, bool bPlus)
-{
-    // Level indentation
-    for (int i = 0; i < level; i++)
-    {
-        if ((i + 1 == level) && (bPlus))
-            FBXSDK_printf("+-");
-        else
-            FBXSDK_printf("  ");
-    }
-}
-
-// Iterate the scene, and for each node and 
-// object look at the connections
-//
-void FbxLoader::GetConnections(FbxNode* currentNode, int level)
-{
-
-    //	Print out the node name
-    //
-    PrintLevel(level, true);
-    FBXSDK_printf("Node %s \n", currentNode->GetName());
-
-    FbxObject* currentObj = currentNode->GetNodeAttribute();
-    if (currentObj)
-    {
-        int numSrcProps = currentObj->GetSrcPropertyCount();
-        for (int j = 0; j < numSrcProps; j++)
-        {
-            FbxProperty propSrc = currentObj->GetSrcProperty(j);
-            PrintLevel(level, false);
-            FBXSDK_printf(" Src Prop: %s\n", propSrc.GetNameAsCStr());
-        }
-        int numDstProps = currentObj->GetDstPropertyCount();
-        for (int j = 0; j < numDstProps; j++)
-        {
-            FbxProperty propDst = currentObj->GetDstProperty(j);
-            PrintLevel(level, false);
-            FBXSDK_printf(" Dst Prop: %s\n", propDst.GetNameAsCStr());
-        }
-    }
-
-    //	Get and Print out the Source Objects
-    //
-    int numSrcObjs = currentNode->GetSrcObjectCount();
-    for (int i = 0; i < numSrcObjs; i++)
-    {
-        FbxObject* objSrc = currentNode->GetSrcObject(i);
-        PrintLevel(level, false);
-        FBXSDK_printf(" Src Obj: %s\n", objSrc->GetName());
-    }
-
-    //	Get and Print out the Destination Objects
-    //
-    int numDstObjs = currentNode->GetDstObjectCount();
-    for (int i = 0; i < numDstObjs; i++)
-    {
-        FbxObject* objDst = currentNode->GetDstObject(i);
-        PrintLevel(level, false);
-        FBXSDK_printf(" Dst Obj: %s\n", objDst->GetName());
-    }
-
-    // Recurse on the node children
-    int numKids = currentNode->GetChildCount();
-    for (int k = 0; k < numKids; k++)
-    {
-        FbxNode* child = currentNode->GetChild(k);
-        GetConnections(child, level + 1);
-    }
-}
-
-FbxNode* FbxLoader::CreateCube()
-{
-    const int numFaces = 6;
-    const int vertsPerFace = 4;
-
-    FbxVector4 points[] = {
-        FbxVector4(-250, -250, 250),
-        FbxVector4(250, -250, 250),
-        FbxVector4(250, 250, 250),
-        FbxVector4(-250, 250, 250),
-        FbxVector4(-250, -250, -250),
-        FbxVector4(250, -250, -250),
-        FbxVector4(250, 250, -250),
-        FbxVector4(-250, 250, -250) };
-
-    FbxVector4 normals[] = {
-        FbxVector4(0, 0, 1),
-        FbxVector4(1, 0, 0),
-        FbxVector4(0, 0, -1),
-        FbxVector4(-1, 0, 0),
-        FbxVector4(0, 1, 0),
-        FbxVector4(0, -1, 0) };
-
-    int faceVerts[] = { 0, 1, 2, 3,
-                     1, 5, 6, 2,
-                     5, 4, 7, 6,
-                     4, 0, 3, 7,
-                     3, 2, 6, 7,
-                     4, 5, 1, 0 };
-
-    FbxMesh* myMesh = NULL;
-    myMesh = FbxMesh::Create(globalSdkMgr(), "myCube");
-
-    myMesh->InitControlPoints(numFaces * vertsPerFace);
-    FbxVector4* cpArray = myMesh->GetControlPoints();
-
-  
-    for (int f = 0; f < numFaces; f++)
-    {
-        myMesh->BeginPolygon();
-        for (int v = 0; v < vertsPerFace; v++)
-        {
-            int vIndex = vertsPerFace * f + v;
-
-            myMesh->AddPolygon(vIndex);
-            cpArray[vIndex] = points[faceVerts[vIndex]];
-        }
-        myMesh->EndPolygon();
-    }
-
-  
-    FbxLayer* layer0 = myMesh->GetLayer(0);
-    if (layer0 == NULL)
-    {
-        myMesh->CreateLayer();
-        layer0 = myMesh->GetLayer(0);
-    }
-
-   
-    FbxLayerElementNormal* normalLayer = FbxLayerElementNormal::Create(myMesh, "");
-    normalLayer->SetMappingMode(FbxLayerElement::eByControlPoint);
-    normalLayer->SetReferenceMode(FbxLayerElement::eDirect);
-    layer0->SetNormals(normalLayer);
-
-    FbxLayerElementArrayTemplate<FbxVector4>& normalArray = normalLayer->GetDirectArray();
-    for (int f = 0; f < numFaces; f++)
-    {
-        for (int v = 0; v < vertsPerFace; v++)
-        {
-            normalArray.Add(normals[f]);
-        }
-    }
-
-    FbxNode* myNode = FbxNode::Create(globalSdkMgr(), "myNode");
-    myNode->SetNodeAttribute(myMesh);
-
-    return myNode;
-}
-
-void FbxLoader::MaterialCube(FbxNode* pCube, FbxScene* scene)
-{
-    FbxMesh* mesh = pCube->GetMesh();
-    FbxGeometryElementMaterial* mat = mesh->CreateElementMaterial();
-    mat->SetMappingMode(FbxLayerElement::eByPolygon);
-    mat->SetReferenceMode(FbxGeometryElement::eIndexToDirect);
-
-    int count = mesh->GetPolygonCount();
-
-    mat->GetIndexArray().SetCount(count);
-    for (int i = 0; i < count; i++)
-    {
-        FbxString lMaterialName = "TestMaterial";
-        FbxString lShadingModelName = i % 2 == 0 ? "Lambert" : "Phong";
-        lMaterialName += i;
-        FbxDouble3 lEmissive(0.0, 0.0, 0.0);
-        FbxDouble3 lAmbient(1.0, 0.0, 0.0);
-        FbxDouble3 lColor;
-        FbxSurfaceLambert* lMaterial = FbxSurfaceLambert::Create(scene, lMaterialName.Buffer());
-
-        lMaterial->Emissive.Set(lEmissive);
-        lMaterial->Ambient.Set(lAmbient);
-        lColor = FbxDouble3(i > 2 ? 1.0 : 0.0,
-            i > 0 && i < 4 ? 1.0 : 0.0,
-            i % 2 ? 0.0 : 1.0);
-        lMaterial->Diffuse.Set(lColor);
-
-        lMaterial->TransparencyFactor.Set(0.0);
-        lMaterial->ShadingModel.Set(lShadingModelName);
-
-        mat->GetIndexArray().SetAt(i, i);
-
-        pCube->AddMaterial(lMaterial);
-
-    }
+	FbxProperty lShininessProperty = mat->FindProperty(FbxSurfaceMaterial::sShininess);
+	if (lShininessProperty.IsValid())
+	{
+		double lShininess = lShininessProperty.Get<FbxDouble>();
+		printf("Shininess = %lf\n", lShininess);
+	}
 }
 
 
-void FbxLoader::AnimateCube(FbxNode* pCube, FbxScene* scene)
+void CreateTexture(FbxScene* pScene, FbxMesh* pMesh)
 {
-    FbxAnimStack* animStack = FbxAnimStack::Create(scene, "Cube Animation Stack");
-    FbxAnimLayer* animLayer = FbxAnimLayer::Create(scene, "Base Layer");
-    animStack->AddMember(animLayer);
+	FbxSurfacePhong* lMaterial = NULL;
 
-    FbxTime lTime;
-    int lKeyIndex = 0;
+	FbxNode* lNode = pMesh->GetNode();
+	if (lNode)
+	{
+		lMaterial = lNode->GetSrcObject<FbxSurfacePhong>(0);
+		if (lMaterial == NULL)
+		{
+			FbxString lMaterialName = "EyeMaterial";
+			FbxString lShadingName = "EyePhong";
+			FbxDouble3 lBlack(0.0, 0.0, 0.0);
+			FbxDouble3 lRed(1.0, 0.0, 0.0);
+			FbxDouble3 lDiffuseColor(0.75, 0.75, 0.0);
+			lMaterial = FbxSurfacePhong::Create(pScene, lMaterialName.Buffer());
 
-    FbxAnimCurve* acurve = pCube->LclTranslation.GetCurve(animLayer, FBXSDK_CURVENODE_COMPONENT_Z, true);
-    if (acurve)
-    {
-        acurve->KeyModifyBegin();
+			lMaterial->Emissive.Set(lBlack);
+			lMaterial->Ambient.Set(lRed);
+			lMaterial->AmbientFactor.Set(1.);
+			lMaterial->Diffuse.Set(lDiffuseColor);
+			lMaterial->DiffuseFactor.Set(1.);
+			lMaterial->TransparencyFactor.Set(0.4);
+			lMaterial->ShadingModel.Set(lShadingName);
+			lMaterial->Shininess.Set(0.5);
+			lMaterial->Specular.Set(lBlack);
+			lMaterial->SpecularFactor.Set(0.3);
 
-        lTime.SetSecondDouble(0.0);
-        lKeyIndex = acurve->KeyAdd(lTime);
-        acurve->KeySet(lKeyIndex, lTime, 0.0, FbxAnimCurveDef::eInterpolationLinear);
+			lNode->AddMaterial(lMaterial);
+		}
+	}
 
-        lTime.SetSecondDouble(2.0);
-        lKeyIndex = acurve->KeyAdd(lTime);
-        acurve->KeySet(lKeyIndex, lTime, 300.0, FbxAnimCurveDef::eInterpolationLinear);
+	FbxFileTexture* lTexture = FbxFileTexture::Create(pScene, "Diffuse Texture");
 
-        acurve->KeyModifyEnd();
-    }
+	lTexture->SetFileName("eye.jpg");
+	lTexture->SetTextureUse(FbxTexture::eStandard);
+	lTexture->SetMappingType(FbxTexture::eUV);
+	lTexture->SetMaterialUse(FbxFileTexture::eModelMaterial);
+	lTexture->SetSwapUV(false);
+	lTexture->SetTranslation(0.0, 0.0);
+	lTexture->SetScale(1.0, 1.0);
+	lTexture->SetRotation(0.0, 0.0);
 
-}
+	if (lMaterial)
+		lMaterial->Diffuse.ConnectSrcObject(lTexture);
 
-FbxNode* FbxLoader::CreateNurbsSphere(FbxScene* pScene, char* pName)
-{
-    FbxNurbs* lNurbs = FbxNurbs::Create(pScene, pName);
+	lTexture = FbxFileTexture::Create(pScene, "Ambient Texture");
 
-    lNurbs->SetOrder(4, 4);
-    lNurbs->SetStep(2, 2);
-    lNurbs->InitControlPoints(8, FbxNurbs::ePeriodic, 7, FbxNurbs::eOpen);
+	lTexture->SetFileName("eye.jpg");
+	lTexture->SetTextureUse(FbxTexture::eStandard);
+	lTexture->SetMappingType(FbxTexture::eUV);
+	lTexture->SetMaterialUse(FbxFileTexture::eModelMaterial);
+	lTexture->SetSwapUV(false);
+	lTexture->SetTranslation(0.0, 0.0);
+	lTexture->SetScale(1.0, 1.0);
+	lTexture->SetRotation(0.0, 0.0);
 
-    double lUKnotVector[] = { -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0 };
-    memcpy(lNurbs->GetUKnotVector(), lUKnotVector, lNurbs->GetUKnotCount() * sizeof(double));
+	if (lMaterial)
+		lMaterial->Ambient.ConnectSrcObject(lTexture);
 
-    double lVKnotVector[] = { 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 3.0, 4.0, 4.0, 4.0, 4.0 };
-    memcpy(lNurbs->GetVKnotVector(), lVKnotVector, lNurbs->GetVKnotCount() * sizeof(double));
+	lTexture = FbxFileTexture::Create(pScene, "Emissive Texture");
 
-    FbxVector4* lVector4 = lNurbs->GetControlPoints();
-    int i, j;
-    double lScale = 20.0;
-    double lPi = 3.14159;
-    double lYAngle[] = { 90.0, 90.0, 52.0, 0.0, -52.0, -90.0, -90.0 };
-    double lRadius[] = { 0.0, 0.283, 0.872, 1.226, 0.872, 0.283, 0.0 };
+	lTexture->SetFileName("eye.jpg");
+	lTexture->SetTextureUse(FbxTexture::eStandard);
+	lTexture->SetMappingType(FbxTexture::eUV);
+	lTexture->SetMaterialUse(FbxFileTexture::eModelMaterial);
+	lTexture->SetSwapUV(false);
+	lTexture->SetTranslation(0.0, 0.0);
+	lTexture->SetScale(1.0, 1.0);
+	lTexture->SetRotation(0.0, 0.0);
 
-    for (i = 0; i < 7; i++)
-    {
-        for (j = 0; j < 8; j++)
-        {
-            double lX = lScale * lRadius[i] * cos(lPi / 4 * j);
-            double lY = lScale * sin(2 * lPi / 360 * lYAngle[i]);
-            double lZ = lScale * lRadius[i] * sin(lPi / 4 * j);
-            double lWeight = 1.0;
-
-            lVector4[8 * i + j].Set(lX, lY, lZ, lWeight);
-        }
-    }
-
-
-    FbxNode* lNode = FbxNode::Create(pScene, pName);
-
-    lNode->SetNodeAttribute(lNurbs);
-
-    return lNode;
-}
-
-void FbxLoader::MapSphereTexture(FbxScene* pScene, FbxNode* pNurbs)
-{
-    FbxFileTexture* lTexture = FbxFileTexture::Create(pScene, "eye.jpg");
-
-    pNurbs->SetShadingMode(FbxNode::eTextureShading);
-
-    lTexture->SetFileName("eye.jpg");
-    lTexture->SetTextureUse(FbxTexture::eStandard);
-    lTexture->SetMappingType(FbxTexture::eSpherical);
-    lTexture->SetMaterialUse(FbxFileTexture::eModelMaterial);
-    lTexture->SetSwapUV(false);
-    lTexture->SetTranslation(0.0, 0.0);
-    lTexture->SetScale(1.0, 2.0);
-    lTexture->SetRotation(45.0, 0.0);
-
-    FbxSurfacePhong* lMaterial = pNurbs->GetSrcObject<FbxSurfacePhong>(0);
-    if (lMaterial)
-        lMaterial->Diffuse.ConnectSrcObject(lTexture);
-
-}
-
-void FbxLoader::MapSphereMaterial(FbxScene* pScene, FbxNode* pNurbs)
-{
-    FbxSurfacePhong* lMaterial = FbxSurfacePhong::Create(pScene, "scene02");
-    FbxDouble3 lBlue(0.05, 0.05, 0.05);
-    FbxDouble3 lBlack(0.0, 0.0, 0.0);
-
-    lMaterial->Emissive.Set(lBlue);
-    lMaterial->Ambient.Set(lBlack);
-    lMaterial->Specular.Set(lBlack);
-    lMaterial->TransparencyFactor.Set(0.0);
-    lMaterial->Shininess.Set(0.0);
-    lMaterial->ReflectionFactor.Set(0.0);
-
-    FbxNurbs* lNurbs = pNurbs->GetNurbs();
-    FbxGeometryElementMaterial* lGeometryElementMaterial = lNurbs->GetElementMaterial(0);
-
-    if (!lGeometryElementMaterial)
-    {
-        lGeometryElementMaterial = lNurbs->CreateElementMaterial();
-    }
-
-    lGeometryElementMaterial->SetMappingMode(FbxGeometryElement::eAllSame);
-
-    lGeometryElementMaterial->SetReferenceMode(FbxGeometryElement::eDirect);
-    pNurbs->AddMaterial(lMaterial);
-}
-
-void FbxLoader::CreateTextureSphere(FbxScene* scene)
-{
-    FbxNode* lNurbs = CreateNurbsSphere(scene, "TestSphere");
-
-    MapSphereMaterial(scene, lNurbs);
-    MapSphereTexture(scene, lNurbs);
-
-    FbxNode* lRootNode = scene->GetRootNode();
-    lRootNode->AddChild(lNurbs);
-    lNurbs->LclTranslation.Set(FbxVector4(0.0, 0.0, 200.0));
-}
-
-int FbxLoader::findAsciiFormat(FbxManager* mgr)
-{
-    int fileFormat = mgr->GetIOPluginRegistry()->GetNativeWriterFormat();
-
-    int lFormatIndex, lFormatCount = mgr->GetIOPluginRegistry()->GetWriterFormatCount();
-
-    for (lFormatIndex = 0; lFormatIndex < lFormatCount; lFormatIndex++)
-    {
-        if (mgr->GetIOPluginRegistry()->WriterIsFBX(lFormatIndex))
-        {
-            FbxString lDesc = mgr->GetIOPluginRegistry()->GetWriterFormatDescription(lFormatIndex);
-            char* lASCII = "ascii";
-            if (lDesc.Find(lASCII) >= 0)
-            {
-                fileFormat = lFormatIndex;
-                break;
-            }
-        }
-    }
-
-    return fileFormat;
-
-}
-
-void FbxLoader::ExportFbxScene(FbxManager* mgr, FbxScene* scene, char* pFileName)
-{
-    FbxIOPluginRegistry* pluginRegistry = mgr->GetIOPluginRegistry();
-    assert(pluginRegistry != NULL);
-
-    FbxExporter* exporter = FbxExporter::Create(mgr, "ADN_Exporter");
-
-    FbxIOSettings* ios = FbxIOSettings::Create(mgr, IOSROOT);
-    mgr->SetIOSettings(ios);
-
-
-    int fileFormat = findAsciiFormat(mgr);
-
-    if (exporter->Initialize(pFileName, fileFormat, mgr->GetIOSettings()) == false)
-    {
-        FBXSDK_printf("Call to FbxExporter::Initialize() failed.\n");
-        FBXSDK_printf("Error returned: Error Code UnKnown");
-        return;
-    }
-
-    if (!exporter->Export(scene))
-        FBXSDK_printf("Call to FbxExporter::Export() failed.\n");
-
-    return;
-}
-
-void FbxLoader::useFbxLoader()
-{
-  
-    FbxManager* fbxSdkManager = globalSdkMgr();
-
-   
-    FbxScene* scene = FbxScene::Create(fbxSdkManager, "ADN_Scene");
-
-    
-    FbxNode* root = scene->GetRootNode();
-
-   
-    FbxNode* nodeCamera = CreateCamera(scene, FbxVector4(850.0, 700.0, 200.0), FbxVector4(0.0, 0.0, 0.0));
-    root->AddChild(nodeCamera);
-
-   
-    FbxNode* nodeLight = CreateLight(scene, FbxDouble3(1000, 1000, 1000));
-    root->AddChild(nodeLight);
-
-   
-    CreateUserProperties(nodeLight, nodeCamera->GetNodeAttribute());
-
-    FbxProperty propFromLightNode = nodeLight->FindProperty("ADN_StringList", false);
-    if (propFromLightNode.IsValid())
-        FBXSDK_printf("\nFound Light Node Prop: %s", propFromLightNode.GetNameAsCStr());
-    
-    FbxProperty propFromCamera = nodeCamera->GetNodeAttribute()->FindProperty("ADN_StringList", false);
-    if (propFromCamera.IsValid())
-        FBXSDK_printf("\nFound Camera Prop: %s", propFromCamera.GetNameAsCStr());
-
-   
-    FBXSDK_printf("\n\n\nObject Connections\n");
-    GetConnections(root);
-
-   
-    FbxNode* nodeCube = CreateCube();
-    root->AddChild(nodeCube);
-
-    MaterialCube(nodeCube, scene);
-
-    CreateTextureSphere(scene);
-
-    AnimateCube(nodeCube, scene);
-
-    ExportFbxScene(fbxSdkManager, scene, "output.fbx");
-
-    globalMgrDestroy();
+	if (lMaterial)
+		lMaterial->Emissive.ConnectSrcObject(lTexture);
 }

@@ -1,1066 +1,790 @@
-#include "d3dApp.h"
-#include "MathHelper.h"
-#include "UploadBuffer.h"
-#include "GeometryGenerator.h"
-#include "Camera.h"
-#include "FrameResource.h"
-#include "FbxLoader.h"
-#include "fbxTestLoader.h"
+#include <D3D12Helper.h>
+#include <Dxgi1_4.h>
+#include <D3d12SDKLayers.h>
+#include <DirectXMath.h>
+#include <iostream>
+#include "FBXLoader.h"
 #include <imgui.h>
 #include <imgui_impl_dx12.h>
 #include <imgui_impl_win32.h>
 
-using Microsoft::WRL::ComPtr;
-using namespace DirectX;
-using namespace DirectX::PackedVector;
+#define RESOURCE_SETUP	
 
-#pragma comment(lib, "d3dcompiler.lib")
-#pragma comment(lib, "D3D12.lib")
-
-const int gNumFrameResources = 3;
-
-struct RenderItem
+const D3D12_INPUT_ELEMENT_DESC INPUT_LAYOUT[] =
 {
-	RenderItem() = default;
-	RenderItem(const RenderItem& rhs) = delete;
-
-	// World matrix of the shape that describes the object's local space
-	// relative to the world space, which defines the position, orientation,
-	// and scale of the object in the world.
-	XMFLOAT4X4 World = MathHelper::Identity4x4();
-
-	XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
-
-	// Dirty flag indicating the object data has changed and we need to update the constant buffer.
-	// Because we have an object cbuffer for each FrameResource, we have to apply the
-	// update to each FrameResource.  Thus, when we modify obect data we should set 
-	// NumFramesDirty = gNumFrameResources so that each frame resource gets the update.
-	int NumFramesDirty = gNumFrameResources;
-
-	// Index into GPU constant buffer corresponding to the ObjectCB for this render item.
-	UINT ObjCBIndex = -1;
-
-	Material* Mat = nullptr;
-	MeshGeometry* Geo = nullptr;
-
-	// Primitive topology.
-	D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-
-	// DrawIndexedInstanced parameters.
-	UINT IndexCount = 0;
-	UINT StartIndexLocation = 0;
-	int BaseVertexLocation = 0;
+	{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+	{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+	{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 28, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 };
 
-class CameraAndDynamicIndexingApp : public D3DApp
+struct cbMatrix
 {
-public:
-	CameraAndDynamicIndexingApp(HINSTANCE hInstance);
-	CameraAndDynamicIndexingApp(const CameraAndDynamicIndexingApp& rhs) = delete;
-	CameraAndDynamicIndexingApp& operator=(const CameraAndDynamicIndexingApp& rhs) = delete;
-	~CameraAndDynamicIndexingApp();
-
-	virtual bool Initialize()override;
-
-private:
-	virtual void OnResize()override;
-	virtual void Update(const GameTimer& gt)override;
-	virtual void Draw(const GameTimer& gt)override;
-
-	virtual void OnMouseDown(WPARAM btnState, int x, int y)override;
-	virtual void OnMouseUp(WPARAM btnState, int x, int y)override;
-	virtual void OnMouseMove(WPARAM btnState, int x, int y)override;
-
-	void OnKeyboardInput(const GameTimer& gt);
-	void AnimateMaterials(const GameTimer& gt);
-	void UpdateObjectCBs(const GameTimer& gt);
-	void UpdateMaterialBuffer(const GameTimer& gt);
-	void UpdateMainPassCB(const GameTimer& gt);
-
-	void LoadTextures();
-	void BuildRootSignature();
-	void BuildDescriptorHeaps();
-	void BuildShadersAndInputLayout();
-	void BuildShapeGeometry();
-	void BuildPSOs();
-	void BuildFrameResources();
-	void BuildMaterials();
-	void BuildRenderItems();
-	void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
-
-	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
-
-private:
-
-	std::vector<std::unique_ptr<FrameResource>> mFrameResources;
-	FrameResource* mCurrFrameResource = nullptr;
-	int mCurrFrameResourceIndex = 0;
-
-	UINT mCbvSrvDescriptorSize = 0;
-
-	ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
-
-	ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap = nullptr;
-
-	std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
-	std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
-	std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
-	std::unordered_map<std::string, ComPtr<ID3DBlob>> mShaders;
-	std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> mPSOs;
-
-	std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
-
-	// List of all the render items.
-	std::vector<std::unique_ptr<RenderItem>> mAllRitems;
-
-	// Render items divided by PSO.
-	std::vector<RenderItem*> mOpaqueRitems;
-
-	PassConstants mMainPassCB;
-
-	Camera mCamera;
-
-	POINT mLastMousePos;
-
-	// TEST
-	FbxLoader* mFbxLoader;
-	std::vector<Vertex> test;
+	DirectX::XMMATRIX	_WVP;
 };
 
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
-	PSTR cmdLine, int showCmd)
+static const int SCREEN_WIDTH = 1280;
+static const int SCREEN_HEIGHT = 800;
+static const LPTSTR	CLASS_NAME = TEXT("Engine");
+static const UINT BACKBUFFER_COUNT = 2;
+static const UINT CONSTANT_BUFFER_COUNT = 2;
+
+// ディスクリプ?ヒ?プ?イプ
+enum DESCRIPTOR_HEAP_TYPE
 {
-	// Enable run-time memory check for debug builds.
-#if defined(DEBUG) | defined(_DEBUG)
-	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
+	DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+	DESCRIPTOR_HEAP_TYPE_SAMPLER,
+	DESCRIPTOR_HEAP_TYPE_RTV,
+	DESCRIPTOR_HEAP_TYPE_DSV,
+	DESCRIPTOR_HEAP_TYPE_MAX,
+	DESCRIPTOR_HEAP_TYPE_SET = DESCRIPTOR_HEAP_TYPE_SAMPLER + 1,
+};
+
+#if _DEBUG
+ID3D12Debug* g_pDebug;
 #endif
-	 
-	try
+
+ID3D12Device* g_pDevice;
+ID3D12CommandAllocator* g_pCommandAllocator;
+ID3D12CommandQueue* g_pCommandQueue;
+IDXGIDevice2* g_pGIDevice;
+IDXGIAdapter* g_pGIAdapter;
+IDXGIFactory2* g_pGIFactory;
+IDXGISwapChain3* g_pGISwapChain;
+ID3D12PipelineState* g_pPipelineState;
+ID3D12DescriptorHeap* g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_MAX];
+ID3D12GraphicsCommandList* g_pGraphicsCommandList;
+ID3D12RootSignature* g_pRootSignature;
+D3D12_VIEWPORT				g_viewPort;
+ID3D12Fence* g_pFence;
+HANDLE						g_hFenceEvent;
+UINT64						g_CurrentFenceIndex = 0;
+
+UINT						g_CurrentBuckBufferIndex = 0;
+ID3D12Resource* g_pBackBufferResource[BACKBUFFER_COUNT];
+D3D12_CPU_DESCRIPTOR_HANDLE	g_hBackBuffer[BACKBUFFER_COUNT];
+
+ID3D12Resource* g_pDepthStencilResource;
+D3D12_CPU_DESCRIPTOR_HANDLE	g_hDepthStencil;
+
+LPD3DBLOB					g_pVSBlob;
+LPD3DBLOB					g_pPSBlob;
+
+ID3D12Resource* g_pVertexBufferResource;
+D3D12_VERTEX_BUFFER_VIEW	g_VertexBufferView;
+
+ID3D12Resource* g_pConstantBufferResource;
+cbMatrix					g_ConstantBufferData;
+D3D12_CPU_DESCRIPTOR_HANDLE	g_hConstantBuffer[CONSTANT_BUFFER_COUNT];
+
+VertexDataArray				g_vertexDataArray;
+
+bool initDirectX(HWND hWnd)
+{
+	HRESULT hr;
+	UINT GIFlag = 0;
+
+
+#if _DEBUG
+	hr = D3D12GetDebugInterface(IID_PPV_ARGS(&g_pDebug));
+	if (showErrorMessage(hr, TEXT("Not GetDebugInterface")))
 	{
-		CameraAndDynamicIndexingApp theApp(hInstance);
-		if (!theApp.Initialize())
-			return 0;
-
-		return theApp.Run();
-	}
-	catch (DxException& e)
-	{
-		MessageBox(nullptr, e.ToString().c_str(), L"HR Failed", MB_OK);
-		return 0;
-	}
-}
-
-CameraAndDynamicIndexingApp::CameraAndDynamicIndexingApp(HINSTANCE hInstance)
-	: D3DApp(hInstance)
-{
-}
-
-CameraAndDynamicIndexingApp::~CameraAndDynamicIndexingApp()
-{
-	if (md3dDevice != nullptr)
-		FlushCommandQueue();
-}
-
-bool CameraAndDynamicIndexingApp::Initialize()
-{
-	if (!D3DApp::Initialize())
 		return false;
-
-	// Reset the command list to prep for initialization commands.
-	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
-
-	// Get the increment size of a descriptor in this heap type.  This is hardware specific, 
-	// so we have to query this information.
-	mCbvSrvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-	mCamera.SetPosition(0.0f, 2.0f, -15.0f);
-	LoadTextures();
-	BuildRootSignature();
-	BuildDescriptorHeaps();
-
-	// START TEST
-	/*mFbxLoader->Begin(md3dDevice.Get(), mCommandList.Get(), mSrvDescriptorHeap.Get());
-	mFbxLoader->useFbxLoader();
-	mFbxLoader->End();*/
-	LoadFBX(test);
-	test.size();
-	// END TEST
-
-	BuildShadersAndInputLayout();
-	BuildShapeGeometry();
-	BuildMaterials();
-	BuildRenderItems();
-	
-	BuildFrameResources();
-	BuildPSOs();
-
-	// Execute the initialization commands.
-	ThrowIfFailed(mCommandList->Close());
-	ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
-	mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
-
-
-
-	// Wait until initialization is complete.
-	FlushCommandQueue();
-
-	return true;
-}
-
-void CameraAndDynamicIndexingApp::OnResize()
-{
-	D3DApp::OnResize();
-
-	mCamera.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
-}
-
-void CameraAndDynamicIndexingApp::Update(const GameTimer& gt)
-{
-	OnKeyboardInput(gt);
-
-	// Cycle through the circular frame resource array.
-	mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % gNumFrameResources;
-	mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
-
-	// Has the GPU finished processing the commands of the current frame resource?
-	// If not, wait until the GPU has completed commands up to this fence point.
-	if (mCurrFrameResource->Fence != 0 && mFence->GetCompletedValue() < mCurrFrameResource->Fence)
+	}
+	if (g_pDebug)
 	{
-		HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
-		ThrowIfFailed(mFence->SetEventOnCompletion(mCurrFrameResource->Fence, eventHandle));
-		WaitForSingleObject(eventHandle, INFINITE);
-		CloseHandle(eventHandle);
+		g_pDebug->EnableDebugLayer();
+	}
+	GIFlag = DXGI_CREATE_FACTORY_DEBUG;
+#endif
+
+	hr = CreateDXGIFactory2(GIFlag, IID_PPV_ARGS(&g_pGIFactory));
+	if (showErrorMessage(hr, TEXT("Not CreateFactory")))
+	{
+		return false;
 	}
 
-	AnimateMaterials(gt);
-	UpdateObjectCBs(gt);
-	UpdateMaterialBuffer(gt);
-	UpdateMainPassCB(gt);
-}
-
-void CameraAndDynamicIndexingApp::Draw(const GameTimer& gt)
-{
-	auto cmdListAlloc = mCurrFrameResource->CmdListAlloc;
-
-	// Reuse the memory associated with command recording.
-	// We can only reset when the associated command lists have finished execution on the GPU.
-	ThrowIfFailed(cmdListAlloc->Reset());
-
-	// A command list can be reset after it has been added to the command queue via ExecuteCommandList.
-	// Reusing the command list reuses memory.
-	ThrowIfFailed(mCommandList->Reset(cmdListAlloc.Get(), mPSOs["opaque"].Get()));
-
-	mCommandList->RSSetViewports(1, &mScreenViewport);
-	mCommandList->RSSetScissorRects(1, &mScissorRect);
-
-	// Indicate a state transition on the resource usage.
-	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-		D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
-
-	// Clear the back buffer and depth buffer.
-	mCommandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::SteelBlue, 0, nullptr);
-	mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
-
-	// Specify the buffers we are going to render to.
-	mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
-
-	ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
-	mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-
-	mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
-
-	auto passCB = mCurrFrameResource->PassCB->Resource();
-	mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
-
-	// Bind all the materials used in this scene.  For structured buffers, we can bypass the heap and 
-	// set as a root descriptor.
-	auto matBuffer = mCurrFrameResource->MaterialBuffer->Resource();
-	mCommandList->SetGraphicsRootShaderResourceView(2, matBuffer->GetGPUVirtualAddress());
-
-	// Bind all the textures used in this scene.  Observe
-	// that we only have to specify the first descriptor in the table.  
-	// The root signature knows how many descriptors are expected in the table.
-	mCommandList->SetGraphicsRootDescriptorTable(3, mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-
-	DrawRenderItems(mCommandList.Get(), mOpaqueRitems);
-
-	// Indicate a state transition on the resource usage.
-	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-		D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
-
-	// Done recording commands.
-	ThrowIfFailed(mCommandList->Close());
-
-	// Add the command list to the queue for execution.
-	ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
-	mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
-
-	// Swap the back and front buffers
-	ThrowIfFailed(mSwapChain->Present(0, 0));
-	mCurrBackBuffer = (mCurrBackBuffer + 1) % SwapChainBufferCount;
-
-	// Advance the fence value to mark commands up to this fence point.
-	mCurrFrameResource->Fence = ++mCurrentFence;
-
-	// Add an instruction to the command queue to set a new fence point. 
-	// Because we are on the GPU timeline, the new fence point won't be 
-	// set until the GPU finishes processing all the commands prior to this Signal().
-	mCommandQueue->Signal(mFence.Get(), mCurrentFence);
-}
-
-void CameraAndDynamicIndexingApp::OnMouseDown(WPARAM btnState, int x, int y)
-{
-	mLastMousePos.x = x;
-	mLastMousePos.y = y;
-
-	SetCapture(mhMainWnd);
-}
-
-void CameraAndDynamicIndexingApp::OnMouseUp(WPARAM btnState, int x, int y)
-{
-	ReleaseCapture();
-}
-
-void CameraAndDynamicIndexingApp::OnMouseMove(WPARAM btnState, int x, int y)
-{
-	if ((btnState & MK_RBUTTON) != 0)
+	IDXGIAdapter* pGIAdapter = nullptr;
+	hr = g_pGIFactory->EnumAdapters(0, &pGIAdapter);
+	if (showErrorMessage(hr, TEXT("Not GIAdapter")))
 	{
-		// Make each pixel correspond to a quarter of a degree.
-		float dx = XMConvertToRadians(0.25f * static_cast<float>(x - mLastMousePos.x));
-		float dy = XMConvertToRadians(0.25f * static_cast<float>(y - mLastMousePos.y));
-
-		mCamera.Pitch(dy);
-		mCamera.RotateY(dx);
+		return false;
 	}
 
-	mLastMousePos.x = x;
-	mLastMousePos.y = y;
-}
+	hr = D3D12CreateDevice(
+		pGIAdapter,
+		D3D_FEATURE_LEVEL_11_0,
+		IID_PPV_ARGS(&g_pDevice));
 
-void CameraAndDynamicIndexingApp::OnKeyboardInput(const GameTimer& gt)
-{
-	const float dt = gt.DeltaTime();
+	safeRelease(pGIAdapter);
 
-	if (GetAsyncKeyState('W') & 0x8000)
-		mCamera.Walk(10.0f * dt);
-
-	if (GetAsyncKeyState('S') & 0x8000)
-		mCamera.Walk(-10.0f * dt);
-
-	if (GetAsyncKeyState('A') & 0x8000)
-		mCamera.Strafe(-10.0f * dt);
-
-	if (GetAsyncKeyState('D') & 0x8000)
-		mCamera.Strafe(10.0f * dt);
-
-	mCamera.UpdateViewMatrix();
-}
-
-void CameraAndDynamicIndexingApp::AnimateMaterials(const GameTimer& gt)
-{
-
-}
-
-void CameraAndDynamicIndexingApp::UpdateObjectCBs(const GameTimer& gt)
-{
-	auto currObjectCB = mCurrFrameResource->ObjectCB.get();
-	for (auto& e : mAllRitems)
+	if (showErrorMessage(hr, TEXT("Not CreateDevice")))
 	{
-		// Only update the cbuffer data if the constants have changed.  
-		// This needs to be tracked per frame resource.
-		if (e->NumFramesDirty > 0)
+		return false;
+	}
+
+	hr = g_pDevice->CreateCommandAllocator(
+		D3D12_COMMAND_LIST_TYPE_DIRECT,
+		IID_PPV_ARGS(&g_pCommandAllocator));
+
+	if (showErrorMessage(hr, TEXT("Not CommandAllocator")))
+	{
+		hr = g_pDevice->GetDeviceRemovedReason();
+		return false;
+	}
+
+
+	D3D12_COMMAND_QUEUE_DESC commandQueueDesk;
+	commandQueueDesk.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+	commandQueueDesk.Priority = 0;
+	commandQueueDesk.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+	commandQueueDesk.NodeMask = 0x00000000;
+
+	hr = g_pDevice->CreateCommandQueue(&commandQueueDesk, IID_PPV_ARGS(&g_pCommandQueue));
+
+
+
+	if (showErrorMessage(hr, TEXT("Not Create Queue")))
+	{
+		return false;
+	}
+
+
+	DXGI_SWAP_CHAIN_DESC descSwapChain;
+	ZeroMemory(&descSwapChain, sizeof(descSwapChain));
+	descSwapChain.BufferCount = BACKBUFFER_COUNT;
+	descSwapChain.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	descSwapChain.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+	descSwapChain.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+	descSwapChain.OutputWindow = hWnd;
+	descSwapChain.SampleDesc.Count = 1;
+	descSwapChain.Windowed = TRUE;
+
+	hr = g_pGIFactory->CreateSwapChain(g_pCommandQueue, &descSwapChain, reinterpret_cast<IDXGISwapChain**>(&g_pGISwapChain));
+	if (showErrorMessage(hr, TEXT("Now SwapChain")))
+	{
+		return false;
+	}
+
+	hr = g_pDevice->CreateCommandList(
+		0x00000000,
+		D3D12_COMMAND_LIST_TYPE_DIRECT,
+		g_pCommandAllocator,
+		g_pPipelineState,
+		IID_PPV_ARGS(&g_pGraphicsCommandList));
+
+	if (showErrorMessage(hr, TEXT("Not CommandList")))
+	{
+		return false;
+	}
+
+	if (compileShaderFlomFile(L"shaders/VertexShader.hlsl", "main", "vs_5_1", &g_pVSBlob) == false)
+	{
+		showErrorMessage(E_FAIL, TEXT("Not VertexShader"));
+	}
+
+	if (compileShaderFlomFile(L"shaders/PixelShader.hlsl", "main", "ps_5_1", &g_pPSBlob) == false)
+	{
+		showErrorMessage(E_FAIL, TEXT("Not PixelShader"));
+	}
+
+	D3D12_DESCRIPTOR_RANGE range;
+	range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+	range.NumDescriptors = 1;
+	range.BaseShaderRegister = 0;
+	range.RegisterSpace = 0;
+	range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+	D3D12_ROOT_DESCRIPTOR_TABLE rootDescriptorTable;
+	rootDescriptorTable.NumDescriptorRanges = 1;
+	rootDescriptorTable.pDescriptorRanges = &range;
+
+	D3D12_ROOT_PARAMETER rootParameter;
+	rootParameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	rootParameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+	rootParameter.DescriptorTable = rootDescriptorTable;
+
+	LPD3DBLOB pOutBlob = nullptr;
+	D3D12_ROOT_SIGNATURE_DESC descRootSignature = D3D12_ROOT_SIGNATURE_DESC();
+	descRootSignature.Flags =
+		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
+		D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
+		D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
+		D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS |
+		D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS;
+
+	descRootSignature.NumParameters = 1;
+	descRootSignature.pParameters = &rootParameter;
+
+	D3D12SerializeRootSignature(&descRootSignature, D3D_ROOT_SIGNATURE_VERSION_1, &pOutBlob, nullptr);
+	hr = g_pDevice->CreateRootSignature(
+		0x00000001,
+		pOutBlob->GetBufferPointer(),
+		pOutBlob->GetBufferSize(),
+		IID_PPV_ARGS(&g_pRootSignature));
+
+	safeRelease(pOutBlob);
+	if (showErrorMessage(hr, TEXT("")))
+	{
+		return false;
+	}
+
+	D3D12_RASTERIZER_DESC descRasterizer;
+	descRasterizer.FillMode = D3D12_FILL_MODE_SOLID;
+	descRasterizer.CullMode = D3D12_CULL_MODE_NONE;
+	descRasterizer.FrontCounterClockwise = FALSE;
+	descRasterizer.DepthBias = 0;
+	descRasterizer.SlopeScaledDepthBias = 0.0f;
+	descRasterizer.DepthBiasClamp = 0.0f;
+	descRasterizer.DepthClipEnable = TRUE;
+	descRasterizer.MultisampleEnable = FALSE;
+	descRasterizer.AntialiasedLineEnable = FALSE;
+	descRasterizer.ForcedSampleCount = 0;
+	descRasterizer.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+
+	D3D12_BLEND_DESC descBlend;
+	descBlend.AlphaToCoverageEnable = FALSE;
+	descBlend.IndependentBlendEnable = FALSE;
+	descBlend.RenderTarget[0].BlendEnable = FALSE;
+	descBlend.RenderTarget[0].LogicOpEnable = FALSE;
+	descBlend.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
+	descBlend.RenderTarget[0].DestBlend = D3D12_BLEND_ZERO;
+	descBlend.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+	descBlend.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+	descBlend.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+	descBlend.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+	descBlend.RenderTarget[0].LogicOp = D3D12_LOGIC_OP_NOOP;
+	descBlend.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC descPSO;
+	ZeroMemory(&descPSO, sizeof(descPSO));
+	descPSO.InputLayout = { INPUT_LAYOUT, ARRAYSIZE(INPUT_LAYOUT) };
+	descPSO.pRootSignature = g_pRootSignature;
+	descPSO.VS = { reinterpret_cast<BYTE*>(g_pVSBlob->GetBufferPointer()), g_pVSBlob->GetBufferSize() };
+	descPSO.PS = { reinterpret_cast<BYTE*>(g_pPSBlob->GetBufferPointer()), g_pPSBlob->GetBufferSize() };
+	descPSO.RasterizerState = descRasterizer;
+	descPSO.BlendState = descBlend;
+	descPSO.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	descPSO.SampleMask = UINT_MAX;
+	descPSO.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	descPSO.NumRenderTargets = 1;
+	descPSO.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+	descPSO.SampleDesc.Count = 1;
+
+	hr = g_pDevice->CreateGraphicsPipelineState(&descPSO, IID_PPV_ARGS(&g_pPipelineState));
+
+	if (showErrorMessage(hr, TEXT("")))
+	{
+		return false;
+	}
+
+	D3D12_DESCRIPTOR_HEAP_DESC heapDesc;
+	ZeroMemory(&heapDesc, sizeof(heapDesc));
+
+	heapDesc.NumDescriptors = BACKBUFFER_COUNT;
+
+	for (int i = 0; i < DESCRIPTOR_HEAP_TYPE_MAX; ++i)
+	{
+		heapDesc.Flags = (i == D3D12_DESCRIPTOR_HEAP_TYPE_RTV || i == D3D12_DESCRIPTOR_HEAP_TYPE_DSV) ? D3D12_DESCRIPTOR_HEAP_FLAG_NONE : D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+		heapDesc.Type = static_cast<D3D12_DESCRIPTOR_HEAP_TYPE>(i);
+
+		hr = g_pDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&g_pDescripterHeapArray[i]));
+		if (showErrorMessage(hr, TEXT("Not DescriptorHeap")))
 		{
-			XMMATRIX world = XMLoadFloat4x4(&e->World);
-			XMMATRIX texTransform = XMLoadFloat4x4(&e->TexTransform);
-
-			ObjectConstants objConstants;
-			XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
-			XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
-			objConstants.MaterialIndex = e->Mat->MatCBIndex;
-
-			currObjectCB->CopyData(e->ObjCBIndex, objConstants);
-
-			// Next FrameResource need to be updated too.
-			e->NumFramesDirty--;
+			return false;
 		}
 	}
-}
 
-void CameraAndDynamicIndexingApp::UpdateMaterialBuffer(const GameTimer& gt)
-{
-	auto currMaterialBuffer = mCurrFrameResource->MaterialBuffer.get();
-	for (auto& e : mMaterials)
+	g_pGraphicsCommandList->SetDescriptorHeaps(DESCRIPTOR_HEAP_TYPE_SET, g_pDescripterHeapArray);
+
+	UINT strideHandleBytes = g_pDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+	for (UINT i = 0; i < BACKBUFFER_COUNT; ++i)
 	{
-		// Only update the cbuffer data if the constants have changed.  If the cbuffer
-		// data changes, it needs to be updated for each FrameResource.
-		Material* mat = e.second.get();
-		if (mat->NumFramesDirty > 0)
+		hr = g_pGISwapChain->GetBuffer(i, IID_PPV_ARGS(&g_pBackBufferResource[i]));
+		if (showErrorMessage(hr, TEXT("Not GetBuffer")))
 		{
-			XMMATRIX matTransform = XMLoadFloat4x4(&mat->MatTransform);
-
-			MaterialData matData;
-			matData.DiffuseAlbedo = mat->DiffuseAlbedo;
-			matData.FresnelR0 = mat->FresnelR0;
-			matData.Roughness = mat->Roughness;
-			XMStoreFloat4x4(&matData.MatTransform, XMMatrixTranspose(matTransform));
-			matData.DiffuseMapIndex = mat->DiffuseSrvHeapIndex;
-
-			currMaterialBuffer->CopyData(mat->MatCBIndex, matData);
-
-			// Next FrameResource need to be updated too.
-			mat->NumFramesDirty--;
+			return false;
 		}
+		g_hBackBuffer[i] = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_RTV]->GetCPUDescriptorHandleForHeapStart();
+		g_hBackBuffer[i].ptr += i * strideHandleBytes;
+		g_pDevice->CreateRenderTargetView(g_pBackBufferResource[i], nullptr, g_hBackBuffer[i]);
 	}
-}
 
-void CameraAndDynamicIndexingApp::UpdateMainPassCB(const GameTimer& gt)
-{
-	XMMATRIX view = mCamera.GetView();
-	XMMATRIX proj = mCamera.GetProj();
-
-	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
-	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
-	XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
-	XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
-
-	XMStoreFloat4x4(&mMainPassCB.View, XMMatrixTranspose(view));
-	XMStoreFloat4x4(&mMainPassCB.InvView, XMMatrixTranspose(invView));
-	XMStoreFloat4x4(&mMainPassCB.Proj, XMMatrixTranspose(proj));
-	XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj));
-	XMStoreFloat4x4(&mMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
-	XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
-	mMainPassCB.EyePosW = mCamera.GetPosition3f();
-	mMainPassCB.RenderTargetSize = XMFLOAT2((float)mClientWidth, (float)mClientHeight);
-	mMainPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
-	mMainPassCB.NearZ = 1.0f;
-	mMainPassCB.FarZ = 1000.0f;
-	mMainPassCB.TotalTime = gt.TotalTime();
-	mMainPassCB.DeltaTime = gt.DeltaTime();
-	mMainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
-	mMainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
-	mMainPassCB.Lights[0].Strength = { 0.8f, 0.8f, 0.8f };
-	mMainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
-	mMainPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
-	mMainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
-	mMainPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
-
-	auto currPassCB = mCurrFrameResource->PassCB.get();
-	currPassCB->CopyData(0, mMainPassCB);
-}
-
-void CameraAndDynamicIndexingApp::LoadTextures()
-{
-	auto bricksTex = std::make_unique<Texture>();
-	bricksTex->Name = "bricksTex";
-	bricksTex->Filename = L"Textures/bricks.dds";
-	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-		mCommandList.Get(), bricksTex->Filename.c_str(),
-		bricksTex->Resource, bricksTex->UploadHeap));
-
-	auto stoneTex = std::make_unique<Texture>();
-	stoneTex->Name = "stoneTex";
-	stoneTex->Filename = L"Textures/stone.dds";
-	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-		mCommandList.Get(), stoneTex->Filename.c_str(),
-		stoneTex->Resource, stoneTex->UploadHeap));
-
-	auto tileTex = std::make_unique<Texture>();
-	tileTex->Name = "tileTex";
-	tileTex->Filename = L"Textures/tile.dds";
-	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-		mCommandList.Get(), tileTex->Filename.c_str(),
-		tileTex->Resource, tileTex->UploadHeap));
-
-	auto crateTex = std::make_unique<Texture>();
-	crateTex->Name = "crateTex";
-	crateTex->Filename = L"Textures/WoodCrate01.dds";
-	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-		mCommandList.Get(), crateTex->Filename.c_str(),
-		crateTex->Resource, crateTex->UploadHeap));
-
-	mTextures[bricksTex->Name] = std::move(bricksTex);
-	mTextures[stoneTex->Name] = std::move(stoneTex);
-	mTextures[tileTex->Name] = std::move(tileTex);
-	mTextures[crateTex->Name] = std::move(crateTex);
-}
-
-void CameraAndDynamicIndexingApp::BuildRootSignature()
-{
-	CD3DX12_DESCRIPTOR_RANGE texTable;
-	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 4, 0, 0);
-
-	// Root parameter can be a table, root descriptor or root constants.
-	CD3DX12_ROOT_PARAMETER slotRootParameter[4];
-
-	// Perfomance TIP: Order from most frequent to least frequent.
-	slotRootParameter[0].InitAsConstantBufferView(0);
-	slotRootParameter[1].InitAsConstantBufferView(1);
-	slotRootParameter[2].InitAsShaderResourceView(0, 1);
-	slotRootParameter[3].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
-
-
-	auto staticSamplers = GetStaticSamplers();
-
-	// A root signature is an array of root parameters.
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(4, slotRootParameter,
-		(UINT)staticSamplers.size(), staticSamplers.data(),
-		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
-
-	// create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
-	ComPtr<ID3DBlob> serializedRootSig = nullptr;
-	ComPtr<ID3DBlob> errorBlob = nullptr;
-	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
-		serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-	if (errorBlob != nullptr)
 	{
-		::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+		D3D12_DEPTH_STENCIL_VIEW_DESC depthStencilDesc = {};
+		depthStencilDesc.Format = DXGI_FORMAT_D32_FLOAT;
+		depthStencilDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+		depthStencilDesc.Flags = D3D12_DSV_FLAG_NONE;
+
+		D3D12_CLEAR_VALUE depthOptimizedClearValue = {};
+		depthOptimizedClearValue.Format = DXGI_FORMAT_D32_FLOAT;
+		depthOptimizedClearValue.DepthStencil.Depth = 1.0f;
+		depthOptimizedClearValue.DepthStencil.Stencil = 0;
+
+		hr = g_pDevice->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+			D3D12_HEAP_FLAG_NONE,
+			&CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_D32_FLOAT, SCREEN_WIDTH, SCREEN_HEIGHT, 1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL),
+			D3D12_RESOURCE_STATE_DEPTH_WRITE,
+			&depthOptimizedClearValue,
+			IID_PPV_ARGS(&g_pDepthStencilResource));
+
+		if (showErrorMessage(hr, TEXT("Not CommittedResource")))
+		{
+			return false;
+		}
+
+		g_hDepthStencil = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_DSV]->GetCPUDescriptorHandleForHeapStart();
+		g_pDevice->CreateDepthStencilView(
+			g_pDepthStencilResource,
+			&depthStencilDesc,
+			g_hDepthStencil);
 	}
-	ThrowIfFailed(hr);
 
-	ThrowIfFailed(md3dDevice->CreateRootSignature(
-		0,
-		serializedRootSig->GetBufferPointer(),
-		serializedRootSig->GetBufferSize(),
-		IID_PPV_ARGS(mRootSignature.GetAddressOf())));
-}
+	g_viewPort.TopLeftX = 0;
+	g_viewPort.TopLeftY = 0;
+	g_viewPort.Width = SCREEN_WIDTH;
+	g_viewPort.Height = SCREEN_HEIGHT;
+	g_viewPort.MinDepth = 0.0f;
+	g_viewPort.MaxDepth = 1.0f;
 
-void CameraAndDynamicIndexingApp::BuildDescriptorHeaps()
-{
-	//
-	// Create the SRV heap.
-	//
-	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = 4;
-	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
+	g_pDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&g_pFence));
 
-	//
-	// Fill out the heap with actual descriptors.
-	//
-	CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+	if (showErrorMessage(hr, TEXT("Not CreateFence")))
+	{
+		return false;
+	}
+
+	g_hFenceEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
 	{
 		IMGUI_CHECKVERSION();
 		ImGui::CreateContext();
 		ImGuiIO& io = ImGui::GetIO(); (void)io;
-		ImGui_ImplWin32_Init(mhMainWnd);
-		ImGui_ImplDX12_Init(md3dDevice.Get(), 3, DXGI_FORMAT_R8G8B8A8_UNORM,
-			mSrvDescriptorHeap.Get(),
-			mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
-			mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+		ImGui_ImplWin32_Init(hWnd);
+		ImGui_ImplDX12_Init(g_pDevice, 3, DXGI_FORMAT_R8G8B8A8_UNORM,
+			g_pDescripterHeapArray[0],
+			g_pDescripterHeapArray[0]->GetCPUDescriptorHandleForHeapStart(),
+			g_pDescripterHeapArray[0]->GetGPUDescriptorHandleForHeapStart());
 	}
 
-	auto bricksTex = mTextures["bricksTex"]->Resource;
-	auto stoneTex = mTextures["stoneTex"]->Resource;
-	auto tileTex = mTextures["tileTex"]->Resource;
-	auto crateTex = mTextures["crateTex"]->Resource;
-
-	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	srvDesc.Format = bricksTex->GetDesc().Format;
-	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-	srvDesc.Texture2D.MostDetailedMip = 0;
-	srvDesc.Texture2D.MipLevels = bricksTex->GetDesc().MipLevels;
-	srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
-	md3dDevice->CreateShaderResourceView(bricksTex.Get(), &srvDesc, hDescriptor);
-
-	// next descriptor
-	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
-
-	srvDesc.Format = stoneTex->GetDesc().Format;
-	srvDesc.Texture2D.MipLevels = stoneTex->GetDesc().MipLevels;
-	md3dDevice->CreateShaderResourceView(stoneTex.Get(), &srvDesc, hDescriptor);
-
-	// next descriptor
-	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
-
-	srvDesc.Format = tileTex->GetDesc().Format;
-	srvDesc.Texture2D.MipLevels = tileTex->GetDesc().MipLevels;
-	md3dDevice->CreateShaderResourceView(tileTex.Get(), &srvDesc, hDescriptor);
-
-	// next descriptor
-	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
-
-	srvDesc.Format = crateTex->GetDesc().Format;
-	srvDesc.Texture2D.MipLevels = crateTex->GetDesc().MipLevels;
-	md3dDevice->CreateShaderResourceView(crateTex.Get(), &srvDesc, hDescriptor);
+	return true;
 }
 
-void CameraAndDynamicIndexingApp::BuildShadersAndInputLayout()
+void cleanupDirectX()
 {
-	const D3D_SHADER_MACRO alphaTestDefines[] =
+	CloseHandle(g_hFenceEvent);
+	safeRelease(g_pFence);
+	safeRelease(g_pDepthStencilResource);
+	for (UINT i = 0; i < BACKBUFFER_COUNT; ++i)
 	{
-		"ALPHA_TEST", "1",
-		NULL, NULL
-	};
-
-	mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "VS", "vs_5_1");
-	mShaders["opaquePS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "PS", "ps_5_1");
-
-	mInputLayout =
+		safeRelease(g_pBackBufferResource[i]);
+	}
+	for (int i = 0; i < DESCRIPTOR_HEAP_TYPE_MAX; ++i)
 	{
-		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-	};
+		safeRelease(g_pDescripterHeapArray[i]);
+	}
+	safeRelease(g_pPipelineState);
+	safeRelease(g_pRootSignature);
+	safeRelease(g_pPSBlob);
+	safeRelease(g_pVSBlob);
+
+	safeRelease(g_pGISwapChain);
+	safeRelease(g_pGIFactory);
+	safeRelease(g_pGIAdapter);
+	safeRelease(g_pGIDevice);
+	safeRelease(g_pCommandQueue);
+	safeRelease(g_pGraphicsCommandList);
+	safeRelease(g_pCommandAllocator);
+	safeRelease(g_pDevice);
+#if _DEBUG
+	safeRelease(g_pDebug);
+#endif
 }
 
-void CameraAndDynamicIndexingApp::BuildShapeGeometry()
+#if defined(RESOURCE_SETUP)
+bool setupResource()
+{
+	HRESULT hr;
+
+	{
+		if (LoadFBXConvertToVertexData("output.fbx", g_vertexDataArray) == false)
+		{
+			if (showErrorMessage(E_FAIL, TEXT("Not Found FBX")))
+			{
+				return false;
+			}
+		}
+
+
+		D3D12_HEAP_PROPERTIES heapPropaty;
+		heapPropaty.Type = D3D12_HEAP_TYPE_UPLOAD;
+		heapPropaty.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+		heapPropaty.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+		heapPropaty.CreationNodeMask = 1;
+		heapPropaty.VisibleNodeMask = 1;
+
+		D3D12_RESOURCE_DESC descResource;
+		descResource.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+		descResource.Alignment = 0;
+		descResource.Width = g_vertexDataArray.size() * sizeof(VertexData);
+		descResource.Height = 1;
+		descResource.DepthOrArraySize = 1;
+		descResource.MipLevels = 1;
+		descResource.Format = DXGI_FORMAT_UNKNOWN;
+		descResource.SampleDesc.Count = 1;
+		descResource.SampleDesc.Quality = 0;
+		descResource.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+		descResource.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+		hr = g_pDevice->CreateCommittedResource(
+			&heapPropaty,
+			D3D12_HEAP_FLAG_NONE,
+			&descResource,
+			D3D12_RESOURCE_STATE_GENERIC_READ,
+			nullptr,
+			IID_PPV_ARGS(&g_pVertexBufferResource));
+
+		if (showErrorMessage(hr, TEXT("Not CreateCommittedResource")))
+		{
+			return false;
+		}
+
+		UINT8* dataBegin;
+		if (SUCCEEDED(g_pVertexBufferResource->Map(0, nullptr, reinterpret_cast<void**>(&dataBegin))))
+		{
+			VertexData* temp = reinterpret_cast<VertexData*>(dataBegin);
+			for (size_t i = 0; i < g_vertexDataArray.size(); ++i)
+			{
+				temp[i] = g_vertexDataArray[i];
+			}
+			g_pVertexBufferResource->Unmap(0, nullptr);
+		}
+		else
+		{
+			showErrorMessage(E_FAIL, TEXT("Not dataBegin"));
+			return false;
+		}
+
+		g_VertexBufferView.BufferLocation = g_pVertexBufferResource->GetGPUVirtualAddress();
+		g_VertexBufferView.StrideInBytes = sizeof(VertexData);
+		g_VertexBufferView.SizeInBytes = g_vertexDataArray.size() * sizeof(VertexData);
+	}
+
+	{
+		D3D12_HEAP_PROPERTIES heapPropaty;
+		heapPropaty.Type = D3D12_HEAP_TYPE_UPLOAD;
+		heapPropaty.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+		heapPropaty.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+		heapPropaty.CreationNodeMask = 1;
+		heapPropaty.VisibleNodeMask = 1;
+
+		D3D12_RESOURCE_DESC descResource;
+		descResource.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+		descResource.Alignment = 0;
+		descResource.Width = sizeof(cbMatrix);
+		descResource.Height = 1;
+		descResource.DepthOrArraySize = 1;
+		descResource.MipLevels = 1;
+		descResource.Format = DXGI_FORMAT_UNKNOWN;
+		descResource.SampleDesc.Count = 1;
+		descResource.SampleDesc.Quality = 0;
+		descResource.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+		descResource.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+		hr = g_pDevice->CreateCommittedResource(
+			&heapPropaty,
+			D3D12_HEAP_FLAG_NONE,
+			&descResource,
+			D3D12_RESOURCE_STATE_GENERIC_READ,
+			nullptr,
+			IID_PPV_ARGS(&g_pConstantBufferResource));
+
+		if (showErrorMessage(hr, TEXT("CreateCommittedResource")))
+		{
+			return false;
+		}
+
+		D3D12_CONSTANT_BUFFER_VIEW_DESC descConstantBufferView = {};
+
+		descConstantBufferView.BufferLocation = g_pConstantBufferResource->GetGPUVirtualAddress();
+		descConstantBufferView.SizeInBytes = (sizeof(cbMatrix) + 255) & ~255;
+
+		g_pDevice->CreateConstantBufferView(
+			&descConstantBufferView,
+			g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV]->GetCPUDescriptorHandleForHeapStart());
+
+		UINT strideHandleBytes = g_pDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+		for (int i = 0; i < CONSTANT_BUFFER_COUNT; ++i)
+		{
+			g_hConstantBuffer[i] = g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV]->GetCPUDescriptorHandleForHeapStart();
+			g_hConstantBuffer[i].ptr += i * strideHandleBytes;
+
+			g_pDevice->CreateConstantBufferView(
+				&descConstantBufferView,
+				g_hConstantBuffer[i]);
+		}
+	}
+
+
+	return true;
+}
+#endif
+
+#if defined(RESOURCE_SETUP)
+void cleanupResource()
+{
+	safeRelease(g_pConstantBufferResource);
+	safeRelease(g_pVertexBufferResource);
+}
+#endif
+
+void Render()
+{
+	ID3D12GraphicsCommandList* pCommand = g_pGraphicsCommandList;
+
+	pCommand->SetPipelineState(g_pPipelineState);
+	pCommand->SetGraphicsRootSignature(g_pRootSignature);
+
+	D3D12_RECT clearRect;
+	clearRect.left = 0;
+	clearRect.top = 0;
+	clearRect.right = SCREEN_WIDTH;
+	clearRect.bottom = SCREEN_HEIGHT;
+
+	g_CurrentBuckBufferIndex = g_pGISwapChain->GetCurrentBackBufferIndex();
+
+	pCommand->OMSetRenderTargets(
+		1,
+		&g_hBackBuffer[g_CurrentBuckBufferIndex],
+		FALSE,
+		&g_hDepthStencil);
+
+	setResourceBarrier(
+		pCommand,
+		g_pBackBufferResource[g_CurrentBuckBufferIndex],
+		D3D12_RESOURCE_STATE_PRESENT,
+		D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+	static float count = 0;
+	count = fmod(count + 0.01f, 1.0f);
+	float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
+	pCommand->RSSetViewports(1, &g_viewPort);
+	pCommand->RSSetScissorRects(1, &clearRect);
+	pCommand->ClearRenderTargetView(g_hBackBuffer[g_CurrentBuckBufferIndex], clearColor, 1, &clearRect);
+	pCommand->ClearDepthStencilView(g_hDepthStencil, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+
+#if defined(RESOURCE_SETUP)
+	using namespace DirectX;
+
+	XMMATRIX view = XMMatrixLookAtLH(
+		XMLoadFloat3(&XMFLOAT3(0, 0, -50)),
+		XMLoadFloat3(&XMFLOAT3(0, 0, 0)),
+		XMLoadFloat3(&XMFLOAT3(0, 1, 0)));
+
+	XMMATRIX proj = XMMatrixPerspectiveFovLH(
+		XMConvertToRadians(60),
+		static_cast<float>(SCREEN_WIDTH) / static_cast<float>(SCREEN_HEIGHT),
+		1,
+		1000);
+
+	static XMFLOAT3 rotation(45, 45, 45);
+	rotation.x = fmod(rotation.x + 1.f, 360.f);
+	rotation.y = fmod(rotation.y + 2.f, 360.f);
+	rotation.z = fmod(rotation.z + 3.f, 360.f);
+
+	XMMATRIX world;
+
+	{
+		world = XMMatrixRotationRollPitchYaw(
+			XMConvertToRadians(rotation.x),
+			XMConvertToRadians(rotation.x),
+			XMConvertToRadians(rotation.z));
+
+		g_ConstantBufferData._WVP = XMMatrixTranspose(world * view * proj);
+
+		UINT8* dataBegin;
+		if (SUCCEEDED(g_pConstantBufferResource->Map(0, nullptr, reinterpret_cast<void**>(&dataBegin))))
+		{
+			memcpy(dataBegin, &g_ConstantBufferData, sizeof(g_ConstantBufferData));
+			g_pConstantBufferResource->Unmap(0, nullptr);
+		}
+		else
+		{
+			showErrorMessage(S_FALSE, TEXT("Not ConstantBuffer"));
+		}
+
+		ID3D12DescriptorHeap* pHeaps[] = { g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV] };
+		pCommand->SetDescriptorHeaps(ARRAYSIZE(pHeaps), pHeaps);
+		pCommand->SetGraphicsRootDescriptorTable(0, g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV]->GetGPUDescriptorHandleForHeapStart());
+
+		pCommand->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		pCommand->IASetVertexBuffers(0, 1, &g_VertexBufferView);
+		//pCommand->DrawIndexedInstanced(36, 1, 0, 0, 0);
+		pCommand->DrawInstanced(g_vertexDataArray.size(), g_vertexDataArray.size() / 3, 0, 0);
+	}
+
+#endif
+
+	//static std::string path = "res/";
+	//static std::string name = "";
+	////TEXT//
+	//static bool show_demo_window = true;
+	//static bool show_another_window = true;
+
+	////Draw Gui
+	//ImGui_ImplDX12_NewFrame();
+	//ImGui_ImplWin32_NewFrame();
+	//ImGui::NewFrame();
+
+	//ImGui::SetNextWindowSize(ImVec2(400, 200));
+	//ImGui::SetNextWindowCollapsed(false);
+	//ImGui::SetNextWindowPos(ImVec2(0, (400)));
+	//ImGui::Begin("Hello, world!");
+
+	//ImGui::Text("This is some useful text.");
+	//ImGui::Checkbox("Demo Window", &show_demo_window);
+	//ImGui::Checkbox("Another Window", &show_another_window);
+	//ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+	//ImGui::End();
+
+	//if (show_another_window)
+	//{
+	//	ImGui::SetNextWindowSize(ImVec2(SCREEN_WIDTH / 2, 200));
+	//	ImGui::SetNextWindowCollapsed(false);
+	//	ImGui::SetNextWindowPos(ImVec2(0, (SCREEN_HEIGHT - 250)));
+	//	ImGui::Begin("Another Window", &show_another_window);
+	//	ImGui::Text("Hello from another window!");
+	//	if (ImGui::Button("Close Me"))
+	//		show_another_window = false;
+	//	ImGui::End();
+	//}
+
+	//ImGui::Render();
+	//ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), pCommand);
+
+	setResourceBarrier(
+		pCommand,
+		g_pBackBufferResource[g_CurrentBuckBufferIndex],
+		D3D12_RESOURCE_STATE_RENDER_TARGET,
+		D3D12_RESOURCE_STATE_PRESENT);
+
+	pCommand->Close();
+	ID3D12CommandList* pTemp = pCommand;
+	g_pCommandQueue->ExecuteCommandLists(1, &pTemp);
+	g_pGISwapChain->Present(1, 0);
+
+	const UINT64 FENCE_INDEX = g_CurrentFenceIndex;
+	g_pCommandQueue->Signal(g_pFence, FENCE_INDEX);
+	g_CurrentFenceIndex++;
+
+	if (g_pFence->GetCompletedValue() < FENCE_INDEX)
+	{
+		g_pFence->SetEventOnCompletion(FENCE_INDEX, g_hFenceEvent);
+		WaitForSingleObject(g_hFenceEvent, INFINITE);
+	}
+
+
+	g_pCommandAllocator->Reset();
+	pCommand->Reset(g_pCommandAllocator, g_pPipelineState);
+
+}
+
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
 
-	GeometryGenerator geoGen;
-	GeometryGenerator::MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 3);
-	GeometryGenerator::MeshData grid = geoGen.CreateGrid(20.0f, 30.0f, 60, 40);
-	GeometryGenerator::MeshData sphere = geoGen.CreateSphere(0.5f, 20, 20);
-	GeometryGenerator::MeshData cylinder = geoGen.CreateCylinder(0.5f, 0.3f, 3.0f, 20, 20);
-	//
-	// We are concatenating all the geometry into one big vertex/index buffer.  So
-	// define the regions in the buffer each submesh covers.
-	//
-
-	// Cache the vertex offsets to each object in the concatenated vertex buffer.
-	UINT boxVertexOffset = 0;
-	UINT gridVertexOffset = (UINT)box.Vertices.size();
-	UINT sphereVertexOffset = gridVertexOffset + (UINT)grid.Vertices.size();
-	UINT cylinderVertexOffset = sphereVertexOffset + (UINT)sphere.Vertices.size();
-
-	// Cache the starting index for each object in the concatenated index buffer.
-	UINT boxIndexOffset = 0;
-	UINT gridIndexOffset = (UINT)box.Indices32.size();
-	UINT sphereIndexOffset = gridIndexOffset + (UINT)grid.Indices32.size();
-	UINT cylinderIndexOffset = sphereIndexOffset + (UINT)sphere.Indices32.size();
-
-	SubmeshGeometry boxSubmesh;
-	boxSubmesh.IndexCount = (UINT)box.Indices32.size();
-	boxSubmesh.StartIndexLocation = boxIndexOffset;
-	boxSubmesh.BaseVertexLocation = boxVertexOffset;
-
-	SubmeshGeometry gridSubmesh;
-	gridSubmesh.IndexCount = (UINT)grid.Indices32.size();
-	gridSubmesh.StartIndexLocation = gridIndexOffset;
-	gridSubmesh.BaseVertexLocation = gridVertexOffset;
-
-	SubmeshGeometry sphereSubmesh;
-	sphereSubmesh.IndexCount = (UINT)sphere.Indices32.size();
-	sphereSubmesh.StartIndexLocation = sphereIndexOffset;
-	sphereSubmesh.BaseVertexLocation = sphereVertexOffset;
-
-	SubmeshGeometry cylinderSubmesh;
-	cylinderSubmesh.IndexCount = (UINT)cylinder.Indices32.size();
-	cylinderSubmesh.StartIndexLocation = cylinderIndexOffset;
-	cylinderSubmesh.BaseVertexLocation = cylinderVertexOffset;
-
-
-	////TEST
-	//SubmeshGeometry architectureSubmesh;
-	//architectureSubmesh.IndexCount = (UINT)test.size();
-	//architectureSubmesh.StartIndexLocation = test[0].Pos.x;
-	//architectureSubmesh.BaseVertexLocation = test[0].Pos.x;
-
-	//
-	// Extract the vertex elements we are interested in and pack the
-	// vertices of all the meshes into one vertex buffer.
-	//
-
-	auto totalVertexCount =
-		box.Vertices.size() +
-		grid.Vertices.size() +
-		sphere.Vertices.size() +
-		cylinder.Vertices.size()
-		* test.size();
-
-	std::vector<Vertex> vertices(totalVertexCount);
-
-
-
-	UINT k = 0;
-
-	for (size_t i = 0; i < box.Vertices.size(); ++i, ++k)
+	switch (msg)
 	{
-		vertices[k].Pos = box.Vertices[i].Position;
-		vertices[k].Normal = box.Vertices[i].Normal;
-		vertices[k].TexC = box.Vertices[i].TexC;
+	case WM_KEYDOWN:
+		switch (wparam)
+		{
+		case VK_ESCAPE:
+			DestroyWindow(hwnd);
+			break;
+		}
+		break;
+
+	case WM_DESTROY:
+		PostQuitMessage(0);
+		break;
 	}
 
-	for (size_t i = 0; i < grid.Vertices.size(); ++i, ++k)
-	{
-		vertices[k].Pos = grid.Vertices[i].Position;
-		vertices[k].Normal = grid.Vertices[i].Normal;
-		vertices[k].TexC = grid.Vertices[i].TexC;
-	}
-
-	for (size_t i = 0; i < sphere.Vertices.size(); ++i, ++k)
-	{
-		vertices[k].Pos = sphere.Vertices[i].Position;
-		vertices[k].Normal = sphere.Vertices[i].Normal;
-		vertices[k].TexC = sphere.Vertices[i].TexC;
-	}
-
-	for (size_t i = 0; i < cylinder.Vertices.size(); ++i, ++k)
-	{
-		vertices[k].Pos = cylinder.Vertices[i].Position;
-		vertices[k].Normal = cylinder.Vertices[i].Normal;
-		vertices[k].TexC = cylinder.Vertices[i].TexC;
-	}
-
-	// TEST
-	for (size_t i = 0; i < test.size(); ++i, ++k)
-	{
-		vertices[k].Pos = test.at(i).Pos;
-		vertices[k].Normal = test.at(i).Normal;
-		vertices[k].TexC = test.at(i).TexC;
-	}
-
-	std::vector<std::uint16_t> indices;
-	indices.insert(indices.end(), std::begin(box.GetIndices16()), std::end(box.GetIndices16()));
-	indices.insert(indices.end(), std::begin(grid.GetIndices16()), std::end(grid.GetIndices16()));
-	indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
-	indices.insert(indices.end(), std::begin(cylinder.GetIndices16()), std::end(cylinder.GetIndices16()));
-	// TEST
-	//indices.insert(indices.end(), std::begin(architecture.GetIndices16()), std::end(architecture.GetIndices16()));
-
-	const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-	const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
-
-	auto geo = std::make_unique<MeshGeometry>();
-	geo->Name = "shapeGeo";
-
-	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-	CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-	CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-	geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-		mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-	geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-		mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-	geo->VertexByteStride = sizeof(Vertex);
-	geo->VertexBufferByteSize = vbByteSize;
-	geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-	geo->IndexBufferByteSize = ibByteSize;
-
-	geo->DrawArgs["box"] = boxSubmesh;
-	geo->DrawArgs["grid"] = gridSubmesh;
-	geo->DrawArgs["sphere"] = sphereSubmesh;
-	geo->DrawArgs["cylinder"] = cylinderSubmesh;
-
-	//TEST
-	//geo->DrawArgs["cylinder"] = architectureSubmesh;
-
-	mGeometries[geo->Name] = std::move(geo);
+	return DefWindowProc(hwnd, msg, wparam, lparam);
 }
 
-void CameraAndDynamicIndexingApp::BuildPSOs()
+int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdLine, int nCmdShow)
 {
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc;
+	HWND hwnd;
+	MSG msg;
+	WNDCLASS winc;
 
-	//
-	// PSO for opaque objects.
-	//
-	ZeroMemory(&opaquePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
-	opaquePsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
-	opaquePsoDesc.pRootSignature = mRootSignature.Get();
-	opaquePsoDesc.VS =
+	winc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
+	winc.lpfnWndProc = WndProc;
+	winc.cbClsExtra = 0;
+	winc.cbWndExtra = 0;
+	winc.hInstance = hInstance;
+	winc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+	winc.hCursor = LoadCursor(NULL, IDC_ARROW);
+	winc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+	winc.lpszMenuName = NULL;
+	winc.lpszClassName = CLASS_NAME;
+
+	if (RegisterClass(&winc) == false)
 	{
-		reinterpret_cast<BYTE*>(mShaders["standardVS"]->GetBufferPointer()),
-		mShaders["standardVS"]->GetBufferSize()
-	};
-	opaquePsoDesc.PS =
-	{
-		reinterpret_cast<BYTE*>(mShaders["opaquePS"]->GetBufferPointer()),
-		mShaders["opaquePS"]->GetBufferSize()
-	};
-	opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-	opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-	opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-	opaquePsoDesc.SampleMask = UINT_MAX;
-	opaquePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	opaquePsoDesc.NumRenderTargets = 1;
-	opaquePsoDesc.RTVFormats[0] = mBackBufferFormat;
-	opaquePsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
-	opaquePsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
-	opaquePsoDesc.DSVFormat = mDepthStencilFormat;
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&mPSOs["opaque"])));
-}
-
-void CameraAndDynamicIndexingApp::BuildFrameResources()
-{
-	for (int i = 0; i < gNumFrameResources; ++i)
-	{
-		mFrameResources.push_back(std::make_unique<FrameResource>(md3dDevice.Get(),
-			1, (UINT)mAllRitems.size(), (UINT)mMaterials.size()));
-	}
-}
-
-void CameraAndDynamicIndexingApp::BuildMaterials()
-{
-	auto bricks0 = std::make_unique<Material>();
-	bricks0->Name = "bricks0";
-	bricks0->MatCBIndex = 0;
-	bricks0->DiffuseSrvHeapIndex = 0;
-	bricks0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	bricks0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	bricks0->Roughness = 0.1f;
-
-	auto stone0 = std::make_unique<Material>();
-	stone0->Name = "stone0";
-	stone0->MatCBIndex = 1;
-	stone0->DiffuseSrvHeapIndex = 1;
-	stone0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	stone0->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
-	stone0->Roughness = 0.3f;
-
-	auto tile0 = std::make_unique<Material>();
-	tile0->Name = "tile0";
-	tile0->MatCBIndex = 2;
-	tile0->DiffuseSrvHeapIndex = 2;
-	tile0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	tile0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
-	tile0->Roughness = 0.3f;
-
-	auto crate0 = std::make_unique<Material>();
-	crate0->Name = "crate0";
-	crate0->MatCBIndex = 3;
-	crate0->DiffuseSrvHeapIndex = 3;
-	crate0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	crate0->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
-	crate0->Roughness = 0.2f;
-
-	mMaterials["bricks0"] = std::move(bricks0);
-	mMaterials["stone0"] = std::move(stone0);
-	mMaterials["tile0"] = std::move(tile0);
-	mMaterials["crate0"] = std::move(crate0);
-}
-
-void CameraAndDynamicIndexingApp::BuildRenderItems()
-{
-	auto boxRitem = std::make_unique<RenderItem>();
-	XMStoreFloat4x4(&boxRitem->World, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 1.0f, 0.0f));
-	XMStoreFloat4x4(&boxRitem->TexTransform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
-	boxRitem->ObjCBIndex = 0;
-	boxRitem->Mat = mMaterials["crate0"].get();
-	boxRitem->Geo = mGeometries["shapeGeo"].get();
-	boxRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
-	boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["box"].StartIndexLocation;
-	boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
-	mAllRitems.push_back(std::move(boxRitem));
-
-	auto gridRitem = std::make_unique<RenderItem>();
-	gridRitem->World = MathHelper::Identity4x4();
-	XMStoreFloat4x4(&gridRitem->TexTransform, XMMatrixScaling(8.0f, 8.0f, 1.0f));
-	gridRitem->ObjCBIndex = 1;
-	gridRitem->Mat = mMaterials["tile0"].get();
-	gridRitem->Geo = mGeometries["shapeGeo"].get();
-	gridRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	gridRitem->IndexCount = gridRitem->Geo->DrawArgs["grid"].IndexCount;
-	gridRitem->StartIndexLocation = gridRitem->Geo->DrawArgs["grid"].StartIndexLocation;
-	gridRitem->BaseVertexLocation = gridRitem->Geo->DrawArgs["grid"].BaseVertexLocation;
-	mAllRitems.push_back(std::move(gridRitem));
-
-	auto architectur = std::make_unique<RenderItem>();
-	architectur->World = MathHelper::Identity4x4();
-	XMStoreFloat4x4(&architectur->TexTransform, XMMatrixScaling(8.0f, 8.0f, 1.0f));
-	architectur->ObjCBIndex = 1;
-	architectur->Mat = mMaterials["tile0"].get();
-	architectur->Geo = mGeometries["shapeGeo"].get();
-	architectur->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	architectur->IndexCount = architectur->Geo->DrawArgs["grid"].IndexCount;
-	architectur->StartIndexLocation = architectur->Geo->DrawArgs["grid"].StartIndexLocation;
-	architectur->BaseVertexLocation = architectur->Geo->DrawArgs["grid"].BaseVertexLocation;
-	mAllRitems.push_back(std::move(architectur));
-
-	XMMATRIX brickTexTransform = XMMatrixScaling(1.0f, 1.0f, 1.0f);
-	UINT objCBIndex = 2;
-	for (int i = 0; i < 5; ++i)
-	{
-		auto leftCylRitem = std::make_unique<RenderItem>();
-		auto rightCylRitem = std::make_unique<RenderItem>();
-		auto leftSphereRitem = std::make_unique<RenderItem>();
-		auto rightSphereRitem = std::make_unique<RenderItem>();
-
-		XMMATRIX leftCylWorld = XMMatrixTranslation(-5.0f, 1.5f, -10.0f + i * 5.0f);
-		XMMATRIX rightCylWorld = XMMatrixTranslation(+5.0f, 1.5f, -10.0f + i * 5.0f);
-
-		XMMATRIX leftSphereWorld = XMMatrixTranslation(-5.0f, 3.5f, -10.0f + i * 5.0f);
-		XMMATRIX rightSphereWorld = XMMatrixTranslation(+5.0f, 3.5f, -10.0f + i * 5.0f);
-
-		XMStoreFloat4x4(&leftCylRitem->World, rightCylWorld);
-		XMStoreFloat4x4(&leftCylRitem->TexTransform, brickTexTransform);
-		leftCylRitem->ObjCBIndex = objCBIndex++;
-		leftCylRitem->Mat = mMaterials["bricks0"].get();
-		leftCylRitem->Geo = mGeometries["shapeGeo"].get();
-		leftCylRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-		leftCylRitem->IndexCount = leftCylRitem->Geo->DrawArgs["cylinder"].IndexCount;
-		leftCylRitem->StartIndexLocation = leftCylRitem->Geo->DrawArgs["cylinder"].StartIndexLocation;
-		leftCylRitem->BaseVertexLocation = leftCylRitem->Geo->DrawArgs["cylinder"].BaseVertexLocation;
-
-		XMStoreFloat4x4(&rightCylRitem->World, leftCylWorld);
-		XMStoreFloat4x4(&rightCylRitem->TexTransform, brickTexTransform);
-		rightCylRitem->ObjCBIndex = objCBIndex++;
-		rightCylRitem->Mat = mMaterials["bricks0"].get();
-		rightCylRitem->Geo = mGeometries["shapeGeo"].get();
-		rightCylRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-		rightCylRitem->IndexCount = rightCylRitem->Geo->DrawArgs["cylinder"].IndexCount;
-		rightCylRitem->StartIndexLocation = rightCylRitem->Geo->DrawArgs["cylinder"].StartIndexLocation;
-		rightCylRitem->BaseVertexLocation = rightCylRitem->Geo->DrawArgs["cylinder"].BaseVertexLocation;
-
-		XMStoreFloat4x4(&leftSphereRitem->World, leftSphereWorld);
-		leftSphereRitem->TexTransform = MathHelper::Identity4x4();
-		leftSphereRitem->ObjCBIndex = objCBIndex++;
-		leftSphereRitem->Mat = mMaterials["stone0"].get();
-		leftSphereRitem->Geo = mGeometries["shapeGeo"].get();
-		leftSphereRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-		leftSphereRitem->IndexCount = leftSphereRitem->Geo->DrawArgs["sphere"].IndexCount;
-		leftSphereRitem->StartIndexLocation = leftSphereRitem->Geo->DrawArgs["sphere"].StartIndexLocation;
-		leftSphereRitem->BaseVertexLocation = leftSphereRitem->Geo->DrawArgs["sphere"].BaseVertexLocation;
-
-		XMStoreFloat4x4(&rightSphereRitem->World, rightSphereWorld);
-		rightSphereRitem->TexTransform = MathHelper::Identity4x4();
-		rightSphereRitem->ObjCBIndex = objCBIndex++;
-		rightSphereRitem->Mat = mMaterials["stone0"].get();
-		rightSphereRitem->Geo = mGeometries["shapeGeo"].get();
-		rightSphereRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-		rightSphereRitem->IndexCount = rightSphereRitem->Geo->DrawArgs["sphere"].IndexCount;
-		rightSphereRitem->StartIndexLocation = rightSphereRitem->Geo->DrawArgs["sphere"].StartIndexLocation;
-		rightSphereRitem->BaseVertexLocation = rightSphereRitem->Geo->DrawArgs["sphere"].BaseVertexLocation;
-
-		mAllRitems.push_back(std::move(leftCylRitem));
-		mAllRitems.push_back(std::move(rightCylRitem));
-		mAllRitems.push_back(std::move(leftSphereRitem));
-		mAllRitems.push_back(std::move(rightSphereRitem));
+		return 1;
 	}
 
-	// All the render items are opaque.
-	for (auto& e : mAllRitems)
-		mOpaqueRitems.push_back(e.get());
-}
+	RECT windowRect = { 0, 0, static_cast<LONG>(SCREEN_WIDTH), static_cast<LONG>(SCREEN_HEIGHT) };
+	AdjustWindowRect(&windowRect, WS_OVERLAPPEDWINDOW, FALSE);
 
-void CameraAndDynamicIndexingApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
-{
-	UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+	hwnd = CreateWindow(
+		CLASS_NAME,
+		CLASS_NAME,
+		WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+		0, 0,
+		windowRect.right - windowRect.left,
+		windowRect.bottom - windowRect.top,
+		NULL,
+		NULL,
+		hInstance,
+		NULL);
 
-	auto objectCB = mCurrFrameResource->ObjectCB->Resource();
-
-	// For each render item...
-	for (size_t i = 0; i < ritems.size(); ++i)
+	if (hwnd == NULL)
 	{
-		auto ri = ritems[i];
-
-		cmdList->IASetVertexBuffers(0, 1, &ri->Geo->VertexBufferView());
-		cmdList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
-		cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
-
-		D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
-
-		//D3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-		//tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
-
-		cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
-
-		cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+		return 1;
 	}
 
-	static std::string path = "res/";
-	static std::string name = "";
-	//TEXT//
-	static bool show_demo_window = true;
-	static bool show_another_window = false;
-	static ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
-
-	//Draw Gui
-	ImGui_ImplDX12_NewFrame();
-	ImGui_ImplWin32_NewFrame();
-	ImGui::NewFrame();
-
-	ImGui::SetNextWindowSize(ImVec2(this->mClientWidth / 3, this->mClientHeight / 4));
-	ImGui::SetNextWindowCollapsed(false);
-	ImGui::SetNextWindowPos(ImVec2(0, (this->mClientHeight - 800)));
-	ImGui::Begin("Hello, world!");
-
-	ImGui::Text("This is some useful text.");
-	ImGui::Checkbox("Demo Window", &show_demo_window);
-	ImGui::Checkbox("Another Window", &show_another_window);
-	ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-	ImGui::Text("Position X: %.3f, Position Y: %.3f, Position Z: %.3f", mCamera.GetPosition3f().x, mCamera.GetPosition3f().y, mCamera.GetPosition3f().z);
-	ImGui::Text("View X: %.3f, View Y: %.3f, View Z: %.3f", mCamera.GetLook3f().x, mCamera.GetLook3f().y, mCamera.GetLook3f().z);
-	ImGui::End();
-
-	if (show_another_window)
+	if (initDirectX(hwnd) == false)
 	{
-		ImGui::SetNextWindowSize(ImVec2(this->mClientWidth / 2, 500));
-		ImGui::SetNextWindowCollapsed(false);
-		ImGui::SetNextWindowPos(ImVec2(0, (this->mClientHeight - 250)));
-		ImGui::Begin("Another Window", &show_another_window);
-		ImGui::Text("Hello from another window!");
-		if (ImGui::Button("Close Me"))
-			show_another_window = false;
-		ImGui::End();
+		return 1;
 	}
 
-	ImGui::Render();
-	ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), cmdList);
+#if defined(RESOURCE_SETUP)
+	if (setupResource() == false)
+	{
+		return 1;
+	}
+#endif
+
+	ShowWindow(hwnd, nCmdShow);
+
+	do {
+		if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+		{
+			TranslateMessage(&msg);
+			DispatchMessage(&msg);
+		}
+		else
+		{
+			Render();
+		}
+	} while (msg.message != WM_QUIT);
+
+#if defined(RESOURCE_SETUP)
+	cleanupResource();
+#endif
+	cleanupDirectX();
+
+	UnregisterClass(CLASS_NAME, hInstance);
+
+	return 0;
 }
-
-std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> CameraAndDynamicIndexingApp::GetStaticSamplers()
-{
-	// Applications usually only need a handful of samplers.  So just define them all up front
-	// and keep them available as part of the root signature.  
-
-	const CD3DX12_STATIC_SAMPLER_DESC pointWrap(
-		0, // shaderRegister
-		D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
-
-	const CD3DX12_STATIC_SAMPLER_DESC pointClamp(
-		1, // shaderRegister
-		D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
-
-	const CD3DX12_STATIC_SAMPLER_DESC linearWrap(
-		2, // shaderRegister
-		D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
-
-	const CD3DX12_STATIC_SAMPLER_DESC linearClamp(
-		3, // shaderRegister
-		D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
-
-	const CD3DX12_STATIC_SAMPLER_DESC anisotropicWrap(
-		4, // shaderRegister
-		D3D12_FILTER_ANISOTROPIC, // filter
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressW
-		0.0f,                             // mipLODBias
-		8);                               // maxAnisotropy
-
-	const CD3DX12_STATIC_SAMPLER_DESC anisotropicClamp(
-		5, // shaderRegister
-		D3D12_FILTER_ANISOTROPIC, // filter
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressW
-		0.0f,                              // mipLODBias
-		8);                                // maxAnisotropy
-
-	return {
-		pointWrap, pointClamp,
-		linearWrap, linearClamp,
-		anisotropicWrap, anisotropicClamp };
-}
-
