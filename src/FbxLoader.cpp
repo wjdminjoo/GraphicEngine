@@ -2,11 +2,14 @@
 #include <assert.h>
 #include <cstdio>
 #include <Textures.h>
-static void CreateTexture(FbxScene* pScene, FbxMesh* pMesh);
+
+//static void CreateTexture(FbxScene* pScene, FbxMesh* pMesh);
+//static FbxNode* SetTexture(FbxScene* pScene, char* pName);
 static void GetFBXVertexData(FbxMesh* pMesh, VertexDataArray& outVertexData);
 static void GetMatrialData(FbxSurfaceMaterial* mat);
 static void GetMeshData(FbxNode* child, VertexDataArray& outVertexData);
-
+static void AnimateCube(FbxNode* pCube, FbxScene* scene);
+static void MapSphereTexture(FbxScene* pScene, FbxNode* pNurbs);
 bool LoadFBXConvertToVertexData(const char* filename, VertexDataArray& outVertexData)
 {
 	FbxManager* pFBXManager = FbxManager::Create();
@@ -33,7 +36,11 @@ bool LoadFBXConvertToVertexData(const char* filename, VertexDataArray& outVertex
 	FbxGeometryConverter geometryConverte(pFBXManager);
 	geometryConverte.Triangulate(pScene, true);
 
+	//SetTexture(pScene, "");
 	GetMeshData(pScene->GetRootNode(), outVertexData);
+	AnimateCube(pScene->GetRootNode(), pScene);
+	pScene->GetNodeCount();
+	//MapSphereTexture(pScene, pScene->GetNodeCount());
 
 	pIO->Destroy();
 	pScene->Destroy();
@@ -70,11 +77,11 @@ void GetMeshData(FbxNode* parent, VertexDataArray& outVertexData)
 
 			//auto eyeTex = FbxSurfaceMaterial::Create(pMesh, "eye.jpg");
 			//child->AddMaterial(eyeTex);
-
-
+			//CreateTexture(child->GetScene(), child->GetMesh());
+			
 		}
 
-
+		
 
 		int numMat = child->GetMaterialCount();
 
@@ -97,6 +104,7 @@ void GetMeshData(FbxNode* parent, VertexDataArray& outVertexData)
 		GetMeshData(child, outVertexData);
 	}
 }
+
 
 void GetFBXVertexData(FbxMesh* pMesh, VertexDataArray& outVertexData)
 {
@@ -143,7 +151,9 @@ void GetFBXVertexData(FbxMesh* pMesh, VertexDataArray& outVertexData)
 				if (outVertexData.size() > UVCount)
 				{
 					outVertexData[UVCount].uv = DirectX::XMFLOAT2(UV.mData[0], UV.mData[1]);
+
 				}
+				
 				UVCount++;
 			}
 		}
@@ -158,6 +168,10 @@ FbxDouble3 GetMaterialProperty(
 	FbxDouble3 lResult(0, 0, 0);
 	const FbxProperty lProperty = pMaterial->FindProperty(pPropertyName);
 	const FbxProperty lFactorProperty = pMaterial->FindProperty(pFactorPropertyName);
+
+
+
+
 	if (lProperty.IsValid() && lFactorProperty.IsValid())
 	{
 		lResult = lProperty.Get<FbxDouble3>();
@@ -185,6 +199,7 @@ FbxDouble3 GetMaterialProperty(
 
 				printf("UVSet Name=%s\n", uvSetString.c_str());
 				printf("Texture Name=%s\n", filepath.c_str());
+				
 			}
 		}
 		puts("");
@@ -260,80 +275,115 @@ void GetMatrialData(FbxSurfaceMaterial* mat)
 		double lShininess = lShininessProperty.Get<FbxDouble>();
 		printf("Shininess = %lf\n", lShininess);
 	}
+
+
 }
 
 
-void CreateTexture(FbxScene* pScene, FbxMesh* pMesh)
+// START TEST 
+void MapSphereTexture(FbxScene* pScene, FbxNode* pNurbs)
 {
-	FbxSurfacePhong* lMaterial = NULL;
+	FbxFileTexture* lTexture = FbxFileTexture::Create(pScene, "eye.jpg");
 
-	FbxNode* lNode = pMesh->GetNode();
-	if (lNode)
-	{
-		lMaterial = lNode->GetSrcObject<FbxSurfacePhong>(0);
-		if (lMaterial == NULL)
-		{
-			FbxString lMaterialName = "EyeMaterial";
-			FbxString lShadingName = "EyePhong";
-			FbxDouble3 lBlack(0.0, 0.0, 0.0);
-			FbxDouble3 lRed(1.0, 0.0, 0.0);
-			FbxDouble3 lDiffuseColor(0.75, 0.75, 0.0);
-			lMaterial = FbxSurfacePhong::Create(pScene, lMaterialName.Buffer());
+	// The texture won't be displayed if node shading mode isn't set to FbxNode::eTextureShading.
+	pNurbs->SetShadingMode(FbxNode::eTextureShading);
 
-			lMaterial->Emissive.Set(lBlack);
-			lMaterial->Ambient.Set(lRed);
-			lMaterial->AmbientFactor.Set(1.);
-			lMaterial->Diffuse.Set(lDiffuseColor);
-			lMaterial->DiffuseFactor.Set(1.);
-			lMaterial->TransparencyFactor.Set(0.4);
-			lMaterial->ShadingModel.Set(lShadingName);
-			lMaterial->Shininess.Set(0.5);
-			lMaterial->Specular.Set(lBlack);
-			lMaterial->SpecularFactor.Set(0.3);
-
-			lNode->AddMaterial(lMaterial);
-		}
-	}
-
-	FbxFileTexture* lTexture = FbxFileTexture::Create(pScene, "Diffuse Texture");
-
-	lTexture->SetFileName("eye.jpg");
+	// Set texture properties.
+	lTexture->SetFileName("eye.jpg"); // Resource file is in current directory.
 	lTexture->SetTextureUse(FbxTexture::eStandard);
-	lTexture->SetMappingType(FbxTexture::eUV);
+	lTexture->SetMappingType(FbxTexture::eSpherical);
 	lTexture->SetMaterialUse(FbxFileTexture::eModelMaterial);
 	lTexture->SetSwapUV(false);
 	lTexture->SetTranslation(0.0, 0.0);
-	lTexture->SetScale(1.0, 1.0);
-	lTexture->SetRotation(0.0, 0.0);
+	lTexture->SetScale(1.0, 2.0);
+	lTexture->SetRotation(45.0, 0.0);
 
+	// we connect the texture to the material DiffuseColor property
+	FbxSurfacePhong* lMaterial = pNurbs->GetSrcObject<FbxSurfacePhong>(0);
 	if (lMaterial)
 		lMaterial->Diffuse.ConnectSrcObject(lTexture);
 
-	lTexture = FbxFileTexture::Create(pScene, "Ambient Texture");
-
-	lTexture->SetFileName("eye.jpg");
-	lTexture->SetTextureUse(FbxTexture::eStandard);
-	lTexture->SetMappingType(FbxTexture::eUV);
-	lTexture->SetMaterialUse(FbxFileTexture::eModelMaterial);
-	lTexture->SetSwapUV(false);
-	lTexture->SetTranslation(0.0, 0.0);
-	lTexture->SetScale(1.0, 1.0);
-	lTexture->SetRotation(0.0, 0.0);
-
-	if (lMaterial)
-		lMaterial->Ambient.ConnectSrcObject(lTexture);
-
-	lTexture = FbxFileTexture::Create(pScene, "Emissive Texture");
-
-	lTexture->SetFileName("eye.jpg");
-	lTexture->SetTextureUse(FbxTexture::eStandard);
-	lTexture->SetMappingType(FbxTexture::eUV);
-	lTexture->SetMaterialUse(FbxFileTexture::eModelMaterial);
-	lTexture->SetSwapUV(false);
-	lTexture->SetTranslation(0.0, 0.0);
-	lTexture->SetScale(1.0, 1.0);
-	lTexture->SetRotation(0.0, 0.0);
-
-	if (lMaterial)
-		lMaterial->Emissive.ConnectSrcObject(lTexture);
 }
+
+void _readUV(fbxsdk::FbxMesh* pFbxMesh, int vertexIndex, int uvIndex, VertexData& uv) {
+
+	fbxsdk::FbxLayerElementUV* pFbxLayerElementUV = pFbxMesh->GetLayer(0)->GetUVs();
+
+	if (pFbxLayerElementUV == nullptr) {
+		return;
+	}
+
+	switch (pFbxLayerElementUV->GetMappingMode()) {
+
+	case FbxLayerElementUV::eByControlPoint:
+	{
+		switch (pFbxLayerElementUV->GetReferenceMode()) {
+
+		case FbxLayerElementUV::eDirect:
+		{
+			fbxsdk::FbxVector2 fbxUv = pFbxLayerElementUV->GetDirectArray().GetAt(vertexIndex);
+
+			uv.uv.x = fbxUv.mData[0];
+			uv.uv.y = fbxUv.mData[1];
+
+			break;
+		}
+
+		case FbxLayerElementUV::eIndexToDirect:
+		{
+			int id = pFbxLayerElementUV->GetIndexArray().GetAt(vertexIndex);
+			fbxsdk::FbxVector2 fbxUv = pFbxLayerElementUV->GetDirectArray().GetAt(id);
+
+			uv.uv.x = fbxUv.mData[0];
+			uv.uv.y = fbxUv.mData[1];
+
+			break;
+		}
+		}
+
+		break;
+	}
+	case FbxLayerElementUV::eByPolygonVertex:
+	{
+		switch (pFbxLayerElementUV->GetReferenceMode()) {
+			// Always enters this part for the example model
+		case FbxLayerElementUV::eDirect:
+		case FbxLayerElementUV::eIndexToDirect:
+		{
+			uv.uv.x = pFbxLayerElementUV->GetDirectArray().GetAt(uvIndex).mData[0];
+			uv.uv.y = pFbxLayerElementUV->GetDirectArray().GetAt(uvIndex).mData[1];
+			break;
+		}
+		}
+		break;
+	}
+	}
+}
+void AnimateCube(FbxNode* pCube, FbxScene* scene)
+{
+	FbxAnimStack* animStack = FbxAnimStack::Create(scene, "");
+	FbxAnimLayer* animLayer = FbxAnimLayer::Create(scene, "");
+	animStack->AddMember(animLayer);
+
+	FbxTime lTime;
+	int lKeyIndex = 0;
+
+	FbxAnimCurve* acurve = pCube->LclTranslation.GetCurve(animLayer, FBXSDK_CURVENODE_COMPONENT_Z, true);
+	if (acurve)
+	{
+		acurve->KeyModifyBegin();
+
+		lTime.SetSecondDouble(0.0);
+		lKeyIndex = acurve->KeyAdd(lTime);
+		acurve->KeySet(lKeyIndex, lTime, 0.0, FbxAnimCurveDef::eInterpolationLinear);
+
+		lTime.SetSecondDouble(2.0);
+		lKeyIndex = acurve->KeyAdd(lTime);
+		acurve->KeySet(lKeyIndex, lTime, 300.0, FbxAnimCurveDef::eInterpolationLinear);
+
+		acurve->KeyModifyEnd();
+	}
+
+}
+
+// END TEST 

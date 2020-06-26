@@ -10,9 +10,9 @@
 //
 struct VertexData
 {
-    DirectX::XMFLOAT3 pos;		// ç¿ïW
-    DirectX::XMFLOAT4 normal;	// ?ê¸
-    DirectX::XMFLOAT2 uv;		// UVç¿ïW
+    DirectX::XMFLOAT3 pos;		// position
+    DirectX::XMFLOAT4 normal;	// normal
+    DirectX::XMFLOAT2 uv;		// UV position
 };
 
 typedef std::vector<VertexData>	VertexDataArray;
